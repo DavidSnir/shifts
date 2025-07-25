@@ -1880,71 +1880,30 @@ function MissionTab() {
                   {propertyDisplayName}
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {/* WITH/WITHOUT toggle */}
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button
-                      onClick={() => updateMissionPropertyFilter({ 
-                        id: currentMission._id as any, 
-                        propertyKey, 
-                        required: true, 
-                        value: filter.value 
-                      })}
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: '10px',
-                        fontWeight: 'bold',
-                        backgroundColor: filter.required ? '#000000' : '#ffffff',
-                        color: filter.required ? '#ffffff' : '#000000',
-                        border: '1px solid #000000',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      WITH
-                    </button>
-                    <button
-                      onClick={() => updateMissionPropertyFilter({ 
-                        id: currentMission._id as any, 
-                        propertyKey, 
-                        required: false, 
-                        value: filter.value 
-                      })}
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: '10px',
-                        fontWeight: 'bold',
-                        backgroundColor: !filter.required ? '#000000' : '#ffffff',
-                        color: !filter.required ? '#ffffff' : '#000000',
-                        border: '1px solid #000000',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      WITHOUT
-                    </button>
-                  </div>
-                  
-                  {/* TRUE/FALSE checkbox */}
+                  {/* Property checkbox - checked means "WITH this property", unchecked means "WITHOUT this property" */}
                   <div
                     style={{
                       width: '18px',
                       height: '18px',
                       border: '2px solid #000000',
-                      backgroundColor: filter.value ? '#000000' : '#ffffff',
+                      backgroundColor: filter.required ? '#000000' : '#ffffff',
                       display: 'flex',
                       justifyContent: 'center',
                       alignItems: 'center',
                       fontSize: '12px',
-                      color: filter.value ? '#ffffff' : '#000000',
+                      color: filter.required ? '#ffffff' : '#000000',
                       fontWeight: 'bold',
                       cursor: 'pointer'
                     }}
                     onClick={() => updateMissionPropertyFilter({ 
                       id: currentMission._id as any, 
                       propertyKey, 
-                      required: filter.required, 
-                      value: !filter.value 
+                      required: !filter.required, 
+                      value: true // Always filter for people who have the property as true
                     })}
+                    title={filter.required ? `Requires people WITH ${propertyDisplayName}` : `Requires people WITHOUT ${propertyDisplayName}`}
                   >
-                    {filter.value ? '✓' : ''}
+                    {filter.required ? '✓' : ''}
                   </div>
                   
                   {/* Remove filter button */}
@@ -1980,8 +1939,8 @@ function MissionTab() {
                 updateMissionPropertyFilter({ 
                   id: currentMission._id as any, 
                   propertyKey, 
-                  required: true, 
-                  value: true 
+                  required: true, // Default to "WITH" (checked)
+                  value: true // Always filter for people who have the property as true
                 });
               }
               e.target.value = ''; // Reset selection
@@ -2034,23 +1993,11 @@ function MissionTab() {
                 const personHasProperty = person.properties[propertyKey] === true;
                 
                 if (filter.required) {
-                  // Person must HAVE the property
-                  if (filter.value) {
-                    // Property should be true
-                    return personHasProperty;
-                  } else {
-                    // Property should be false
-                    return !personHasProperty;
-                  }
+                  // Person must HAVE the property (checkbox is checked)
+                  return personHasProperty;
                 } else {
-                  // Person must NOT have the property
-                  if (filter.value) {
-                    // Should NOT have property as true
-                    return !personHasProperty;
-                  } else {
-                    // Should NOT have property as false (meaning they DO have it as true)
-                    return personHasProperty;
-                  }
+                  // Person must NOT have the property (checkbox is unchecked)
+                  return !personHasProperty;
                 }
               });
             }) || [];
@@ -2092,9 +2039,7 @@ function MissionTab() {
                   {Object.entries(currentMission.propertyFilters || {}).map(([propertyKey, filter]) => {
                     const propertyDisplayName = people?.[0]?.propertyNames?.[propertyKey] || propertyKey;
                     const personHasProperty = person.properties[propertyKey] === true;
-                    const matchesFilter = filter.required 
-                      ? (filter.value ? personHasProperty : !personHasProperty)
-                      : (filter.value ? !personHasProperty : personHasProperty);
+                    const matchesFilter = filter.required ? personHasProperty : !personHasProperty;
                     
                     return (
                       <span
@@ -2106,7 +2051,7 @@ function MissionTab() {
                           borderRadius: '3px',
                           fontSize: '10px'
                         }}
-                        title={`${propertyDisplayName}: ${filter.required ? 'WITH' : 'WITHOUT'} ${filter.value ? 'TRUE' : 'FALSE'}`}
+                        title={`${propertyDisplayName}: ${filter.required ? 'WITH' : 'WITHOUT'}`}
                       >
                         {propertyDisplayName.slice(0, 8)}...
                       </span>
