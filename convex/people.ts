@@ -458,4 +458,347 @@ export const remove = mutation({
 
     await ctx.db.delete(id);
   },
+});
+
+// ============================================================================
+// MISSIONS
+// ============================================================================
+
+// Get all missions
+export const listMissions = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+    
+    return await ctx.db
+      .query("missions")
+      .filter((q) => q.eq(q.field("userId"), identity.subject))
+      .collect();
+  },
+});
+
+// Add a new mission
+export const addMission = mutation({
+  args: { name: v.string() },
+  handler: async (ctx, { name }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    return await ctx.db.insert("missions", { 
+      name,
+      userId: identity.subject,
+      propertyFilters: {}, // { propertyKey: { required: boolean, value: boolean } }
+      schedule: {}, // { date: { scheduled: boolean, startTime?: string, endTime?: string } }
+      repeatPatterns: {}, // { startDate: { every: number, unit: 'day'|'week'|'month', scheduled: boolean, startTime?, endTime? } }
+      repeatExceptions: [] // array of date strings that are exceptions to repeat patterns
+    });
+  },
+});
+
+// Update mission name
+export const updateMissionName = mutation({
+  args: { 
+    id: v.id("missions"),
+    name: v.string()
+  },
+  handler: async (ctx, { id, name }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    await ctx.db.patch(id, { name });
+  },
+});
+
+// Update mission property filter
+export const updateMissionPropertyFilter = mutation({
+  args: { 
+    id: v.id("missions"),
+    propertyKey: v.string(),
+    required: v.boolean(), // true = person WITH this property, false = person WITHOUT this property
+    value: v.boolean() // the value the property should have (true/false)
+  },
+  handler: async (ctx, { id, propertyKey, required, value }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const mission = await ctx.db.get(id);
+    if (!mission) return;
+
+    const updatedFilters = {
+      ...mission.propertyFilters,
+      [propertyKey]: { required, value }
+    };
+
+    await ctx.db.patch(id, { propertyFilters: updatedFilters });
+  },
+});
+
+// Remove mission property filter
+export const removeMissionPropertyFilter = mutation({
+  args: { 
+    id: v.id("missions"),
+    propertyKey: v.string()
+  },
+  handler: async (ctx, { id, propertyKey }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const mission = await ctx.db.get(id);
+    if (!mission) return;
+
+    const updatedFilters = { ...mission.propertyFilters };
+    delete updatedFilters[propertyKey];
+
+    await ctx.db.patch(id, { propertyFilters: updatedFilters });
+  },
+});
+
+// Update mission schedule for a specific date
+export const updateMissionSchedule = mutation({
+  args: { 
+    id: v.id("missions"),
+    date: v.string(), // ISO date string (YYYY-MM-DD)
+    scheduled: v.boolean(),
+    startTime: v.optional(v.string()),
+    endTime: v.optional(v.string())
+  },
+  handler: async (ctx, { id, date, scheduled, startTime, endTime }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const mission = await ctx.db.get(id);
+    if (!mission) return;
+
+    const updatedSchedule = { ...mission.schedule };
+    
+    if (scheduled) {
+      updatedSchedule[date] = { scheduled, startTime, endTime };
+    } else {
+      delete updatedSchedule[date];
+    }
+
+    await ctx.db.patch(id, { schedule: updatedSchedule });
+  },
+});
+
+// Add mission repeat pattern
+export const addMissionRepeatPattern = mutation({
+  args: { 
+    id: v.id("missions"),
+    startDate: v.string(), // ISO date string (YYYY-MM-DD)
+    every: v.number(),
+    unit: v.union(v.literal("day"), v.literal("week"), v.literal("month")),
+    scheduled: v.boolean(),
+    startTime: v.optional(v.string()),
+    endTime: v.optional(v.string())
+  },
+  handler: async (ctx, { id, startDate, every, unit, scheduled, startTime, endTime }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const mission = await ctx.db.get(id);
+    if (!mission) return;
+
+    console.log(`Creating new mission pattern starting ${startDate}, cleaning up conflicting exceptions`);
+
+    // Clean up any exceptions that would conflict with this new pattern
+    const updatedExceptions = (mission.repeatExceptions || []).filter((exceptionDate: string) => {
+      // Helper function to check if a date matches this new pattern
+      const matchesNewPattern = (date: string): boolean => {
+        const targetDate = new Date(date + 'T00:00:00');
+        const patternStartDate = new Date(startDate + 'T00:00:00');
+        
+        if (targetDate <= patternStartDate) return false;
+        
+        const diffTime = targetDate.getTime() - patternStartDate.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        
+        if (unit === 'day') {
+          return diffDays % every === 0;
+        } else if (unit === 'week') {
+          return diffDays % (every * 7) === 0;
+        } else if (unit === 'month') {
+          const targetDay = targetDate.getDate();
+          const startDay = patternStartDate.getDate();
+          if (targetDay !== startDay) return false;
+          
+          const monthDiff = (targetDate.getFullYear() - patternStartDate.getFullYear()) * 12 + 
+                           (targetDate.getMonth() - patternStartDate.getMonth());
+          return monthDiff % every === 0;
+        }
+        
+        return false;
+      };
+
+      // Keep exceptions that don't conflict with the new pattern
+      const shouldKeep = !matchesNewPattern(exceptionDate);
+      if (!shouldKeep) {
+        console.log(`Removing conflicting mission exception: ${exceptionDate}`);
+      }
+      return shouldKeep;
+    });
+
+    const updatedRepeatPatterns = {
+      ...mission.repeatPatterns,
+      [startDate]: { every, unit, scheduled, startTime, endTime }
+    };
+
+    console.log(`Cleaned mission exceptions: ${(mission.repeatExceptions || []).length} → ${updatedExceptions.length}`);
+
+    await ctx.db.patch(id, { 
+      repeatPatterns: updatedRepeatPatterns,
+      repeatExceptions: updatedExceptions
+    });
+  },
+});
+
+// Remove mission repeat pattern
+export const removeMissionRepeatPattern = mutation({
+  args: { 
+    id: v.id("missions"),
+    startDate: v.string() // ISO date string (YYYY-MM-DD)
+  },
+  handler: async (ctx, { id, startDate }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const mission = await ctx.db.get(id);
+    if (!mission) return;
+
+    const updatedRepeatPatterns = { ...mission.repeatPatterns };
+    delete updatedRepeatPatterns[startDate];
+
+    await ctx.db.patch(id, { repeatPatterns: updatedRepeatPatterns });
+  },
+});
+
+// Add mission repeat exception (toggle)
+export const addMissionRepeatException = mutation({
+  args: { 
+    id: v.id("missions"),
+    date: v.string() // ISO date string (YYYY-MM-DD)
+  },
+  handler: async (ctx, { id, date }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const mission = await ctx.db.get(id);
+    if (!mission) return;
+
+    const updatedExceptions = [...(mission.repeatExceptions || [])];
+    const existingIndex = updatedExceptions.indexOf(date);
+    
+    if (existingIndex >= 0) {
+      // Remove from exceptions (restore to pattern)
+      updatedExceptions.splice(existingIndex, 1);
+      console.log(`Removed mission exception for ${date} - restoring to pattern`);
+    } else {
+      // Add to exceptions (break from pattern)
+      updatedExceptions.push(date);
+      console.log(`Added mission exception for ${date} - breaking from pattern`);
+    }
+
+    await ctx.db.patch(id, { repeatExceptions: updatedExceptions });
+  },
+});
+
+// Stop future mission repeats (add future dates to exceptions)
+export const stopFutureMissionRepeats = mutation({
+  args: { 
+    id: v.id("missions"),
+    startDate: v.string(), // ISO date string (YYYY-MM-DD) of the pattern
+    monthsAhead: v.optional(v.number()), // How many months ahead to block (default 24)
+    customStopFromDate: v.optional(v.string()) // Custom date to stop from (instead of tomorrow)
+  },
+  handler: async (ctx, { id, startDate, monthsAhead = 24, customStopFromDate }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const mission = await ctx.db.get(id);
+    if (!mission || !mission.repeatPatterns || !mission.repeatPatterns[startDate]) return;
+
+    const pattern = mission.repeatPatterns[startDate];
+    const today = new Date().toISOString().split('T')[0];
+    const stopFromDate = customStopFromDate || today;
+    const stopFromDateObj = new Date(stopFromDate + 'T00:00:00');
+    const updatedExceptions = [...(mission.repeatExceptions || [])];
+    
+    const patternStartDate = new Date(startDate + 'T00:00:00');
+    const endDate = new Date();
+    endDate.setMonth(endDate.getMonth() + monthsAhead);
+    
+    // Start from the chosen stop date (or tomorrow if no custom date)
+    let currentDate = new Date(stopFromDateObj);
+    if (!customStopFromDate) {
+      currentDate.setDate(currentDate.getDate() + 1); // Tomorrow if no custom date
+    }
+    
+    while (currentDate <= endDate) {
+      const dateString = currentDate.toISOString().split('T')[0];
+      
+      // Check if this date matches the pattern using same logic as frontend
+      const diffTime = currentDate.getTime() - patternStartDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      let matches = false;
+      if (diffDays > 0) { // Only future dates relative to pattern start
+        if (pattern.unit === 'day') {
+          matches = diffDays % pattern.every === 0;
+        } else if (pattern.unit === 'week') {
+          matches = diffDays % (pattern.every * 7) === 0;
+        } else if (pattern.unit === 'month') {
+          const targetDay = currentDate.getDate();
+          const startDay = patternStartDate.getDate();
+          if (targetDay === startDay) {
+            const monthDiff = (currentDate.getFullYear() - patternStartDate.getFullYear()) * 12 + 
+                           (currentDate.getMonth() - patternStartDate.getMonth());
+            matches = monthDiff % pattern.every === 0;
+          }
+        }
+      }
+      
+      if (matches && !updatedExceptions.includes(dateString)) {
+        updatedExceptions.push(dateString);
+      }
+      
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    console.log(`Added ${updatedExceptions.length - (mission.repeatExceptions?.length || 0)} future mission exceptions for pattern starting ${startDate}`);
+    await ctx.db.patch(id, { repeatExceptions: updatedExceptions });
+  },
+});
+
+// Delete a mission
+export const removeMission = mutation({
+  args: { id: v.id("missions") },
+  handler: async (ctx, { id }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    await ctx.db.delete(id);
+  },
 }); 
