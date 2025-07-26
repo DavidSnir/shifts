@@ -27,6 +27,25 @@ interface Mission {
   _id: string;
   name: string;
   userId: string;
+  minLength?: number; // Minimum length of mission (required for new missions)
+  maxLength?: number; // Maximum length of mission (optional)
+  propertyFilters: Record<string, { required: boolean; value: boolean }>; // required: true = WITH property, false = WITHOUT property
+  schedule: Record<string, { scheduled: boolean; startTime?: string; endTime?: string }>; // date -> schedule info
+  repeatPatterns?: Record<string, { // date -> repeat pattern
+    every: number;
+    unit: 'day' | 'week' | 'month';
+    scheduled: boolean;
+    startTime?: string;
+    endTime?: string;
+  }>;
+  repeatExceptions?: string[]; // dates that should be excluded from repeats
+  _creationTime: number;
+}
+
+interface Rule {
+  _id: string;
+  name: string;
+  userId: string;
   propertyFilters: Record<string, { required: boolean; value: boolean }>; // required: true = WITH property, false = WITHOUT property
   schedule: Record<string, { scheduled: boolean; startTime?: string; endTime?: string }>; // date -> schedule info
   repeatPatterns?: Record<string, { // date -> repeat pattern
@@ -265,9 +284,9 @@ function getEffectiveAvailability(person: Person, date: string): { unavailable: 
         
         const result = {
           unavailable: pattern.unavailable,
-          // Keep FULL day as empty strings, don't convert to specific times
-          startTime: pattern.startTime || '',
-          endTime: pattern.endTime || '',
+          // Ensure FULL day patterns return empty strings consistently
+          startTime: pattern.startTime === undefined ? '' : pattern.startTime,
+          endTime: pattern.endTime === undefined ? '' : pattern.endTime,
           isRepeated: !isThisTheOrigin, // Only repeated instances are marked as "repeated"
           isRepeatOrigin: isThisTheOrigin,
           isResetOrigin: false, // Pattern-derived availability is never reset
@@ -1255,8 +1274,8 @@ function PersonPage({
           every: repeatEvery,
           unit: repeatUnit,
           unavailable: availability.unavailable,
-          startTime: availability.startTime,
-          endTime: availability.endTime
+          startTime: availability.startTime || '',
+          endTime: availability.endTime || ''
         });
         console.log('Successfully created repeat pattern for date:', startDate);
       } catch (error) {
@@ -1268,7 +1287,7 @@ function PersonPage({
     
     // Always call the existing update function to ensure the start date is set
     console.log('Updating availability for start date:', startDate);
-    await onUpdateAvailability(personId, startDate, availability.unavailable, availability.startTime, availability.endTime);
+    await onUpdateAvailability(personId, startDate, availability.unavailable, availability.startTime || '', availability.endTime || '');
     
     setRepeatPopup(null);
   }
@@ -1710,6 +1729,8 @@ function MissionTab() {
   const missions = useQuery(api.people.listMissions) as Mission[] | undefined
   const addMission = useMutation(api.people.addMission)
   const updateMissionName = useMutation(api.people.updateMissionName)
+  const updateMissionMinLength = useMutation(api.people.updateMissionMinLength)
+  const updateMissionMaxLength = useMutation(api.people.updateMissionMaxLength)
   const updateMissionPropertyFilter = useMutation(api.people.updateMissionPropertyFilter)
   const removeMissionPropertyFilter = useMutation(api.people.removeMissionPropertyFilter)
   const updateMissionSchedule = useMutation(api.people.updateMissionSchedule)
@@ -1849,6 +1870,67 @@ function MissionTab() {
         />
       </div>
       
+      {/* Mission Length Section */}
+      <div style={{ marginBottom: '30px' }}>
+        <div style={{
+          fontSize: '16px',
+          fontWeight: 'bold',
+          marginBottom: '12px'
+        }}>
+          MISSION LENGTH:
+        </div>
+        
+        <div style={{ display: 'grid', gap: '12px' }}>
+          {/* Min Length (Required) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ fontSize: '14px', fontWeight: 'bold', minWidth: '120px' }}>
+              Min Length: *
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={currentMission.minLength || 1}
+              onChange={(e) => {
+                const value = Math.max(1, parseInt(e.target.value) || 1);
+                updateMissionMinLength({ id: currentMission._id as any, minLength: value });
+              }}
+              style={{
+                fontSize: '14px',
+                padding: '8px',
+                border: '2px solid #000000',
+                backgroundColor: '#ffffff',
+                flex: 1
+              }}
+              placeholder="Minimum mission length (required)"
+            />
+          </div>
+          
+          {/* Max Length (Optional) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ fontSize: '14px', fontWeight: 'bold', minWidth: '120px' }}>
+              Max Length:
+            </label>
+            <input
+              type="number"
+              min={(currentMission.minLength || 1)}
+              value={currentMission.maxLength || ''}
+              onChange={(e) => {
+                const value = e.target.value ? parseInt(e.target.value) : undefined;
+                updateMissionMaxLength({ id: currentMission._id as any, maxLength: value });
+              }}
+              style={{
+                fontSize: '14px',
+                padding: '8px',
+                border: '2px solid #000000',
+                backgroundColor: '#ffffff',
+                flex: 1
+              }}
+              placeholder="Maximum mission length (optional)"
+            />
+          </div>
+        </div>
+      </div>
+      
       {/* Property Filters Section */}
       <div style={{ marginBottom: '30px' }}>
         <div style={{
@@ -1880,7 +1962,7 @@ function MissionTab() {
                   {propertyDisplayName}
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {/* Property checkbox - checked means "WITH this property", unchecked means "WITHOUT this property" */}
+                  {/* Single checkbox: Checked = person must have property, Unchecked = person must NOT have property */}
                   <div
                     style={{
                       width: '18px',
@@ -1899,9 +1981,9 @@ function MissionTab() {
                       id: currentMission._id as any, 
                       propertyKey, 
                       required: !filter.required, 
-                      value: true // Always filter for people who have the property as true
+                      value: true // Always true since we're filtering for boolean properties
                     })}
-                    title={filter.required ? `Requires people WITH ${propertyDisplayName}` : `Requires people WITHOUT ${propertyDisplayName}`}
+                    title={filter.required ? 'Person must have this property' : 'Person must NOT have this property'}
                   >
                     {filter.required ? '✓' : ''}
                   </div>
@@ -1939,8 +2021,8 @@ function MissionTab() {
                 updateMissionPropertyFilter({ 
                   id: currentMission._id as any, 
                   propertyKey, 
-                  required: true, // Default to "WITH" (checked)
-                  value: true // Always filter for people who have the property as true
+                  required: true, 
+                  value: true 
                 });
               }
               e.target.value = ''; // Reset selection
@@ -1992,13 +2074,8 @@ function MissionTab() {
               return Object.entries(currentMission.propertyFilters).every(([propertyKey, filter]) => {
                 const personHasProperty = person.properties[propertyKey] === true;
                 
-                if (filter.required) {
-                  // Person must HAVE the property (checkbox is checked)
-                  return personHasProperty;
-                } else {
-                  // Person must NOT have the property (checkbox is unchecked)
-                  return !personHasProperty;
-                }
+                // Simplified logic: required = person must have property, !required = person must NOT have property
+                return filter.required ? personHasProperty : !personHasProperty;
               });
             }) || [];
 
@@ -2051,7 +2128,7 @@ function MissionTab() {
                           borderRadius: '3px',
                           fontSize: '10px'
                         }}
-                        title={`${propertyDisplayName}: ${filter.required ? 'WITH' : 'WITHOUT'}`}
+                        title={`${propertyDisplayName}: ${filter.required ? 'WITH' : 'WITHOUT'} ${filter.value ? 'TRUE' : 'FALSE'}`}
                       >
                         {propertyDisplayName.slice(0, 8)}...
                       </span>
@@ -2204,29 +2281,172 @@ function MissionTab() {
 }
 
 function RulesTab() {
+  const rules = useQuery(api.people.listRules);
+  const people = useQuery(api.people.list);
+  const addRule = useMutation(api.people.addRule);
+  const updateRuleName = useMutation(api.people.updateRuleName);
+  const removeRule = useMutation(api.people.removeRule);
+  
+  const [showingRulePage, setShowingRulePage] = useState<Rule | null>(null);
+  const [editingRuleName, setEditingRuleName] = useState<string | null>(null);
+  const [newRuleName, setNewRuleName] = useState('');
+
+  // Auto-start editing for newly created rules with default name
+  useEffect(() => {
+    if (rules && rules.length > 0) {
+      const latestRule = rules[0]; // rules are ordered by creation time desc
+      if (latestRule.name === "new rule" && editingRuleName !== latestRule._id) {
+        setEditingRuleName(latestRule._id);
+        setNewRuleName(latestRule.name);
+      }
+    }
+  }, [rules, editingRuleName]);
+
+  const handleAddRule = async () => {
+    await addRule({ name: "new rule" });
+  };
+
+  const handleSaveRuleName = async () => {
+    if (!editingRuleName) return;
+    
+    const trimmedName = newRuleName.trim();
+    if (!trimmedName) {
+      handleCancelRuleEdit();
+      return;
+    }
+
+    // Check for duplicates (case-insensitive)
+    const nameExists = rules?.some(rule => 
+      rule.name.toLowerCase() === trimmedName.toLowerCase() && 
+      rule._id !== editingRuleName
+    );
+    
+    if (nameExists) {
+      // Don't save if name already exists
+      return;
+    }
+
+    await updateRuleName({ id: editingRuleName as any, name: trimmedName });
+    setEditingRuleName(null);
+    setNewRuleName('');
+  };
+
+  const handleCancelRuleEdit = async () => {
+    if (!editingRuleName) return;
+    
+    // If it's a "new rule", delete it
+    const rule = rules?.find(r => r._id === editingRuleName);
+    if (rule && rule.name === "new rule") {
+      await removeRule({ id: rule._id as any });
+    }
+    
+    setEditingRuleName(null);
+    setNewRuleName('');
+  };
+
+  if (showingRulePage) {
+    return (
+      <RulePage 
+        rule={showingRulePage} 
+        onBack={() => setShowingRulePage(null)}
+        people={people}
+      />
+    );
+  }
+
   return (
-    <div>
-      <h2 style={{ 
-        fontSize: '20px', 
-        fontWeight: 'bold', 
-        marginBottom: '20px',
-        color: '#000000'
-      }}>
+    <div style={{ padding: '20px' }}>
+      <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '20px' }}>
         RULES
       </h2>
-      <div style={{ 
-        height: '200px', 
-        border: '2px solid #000000',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        fontSize: '14px',
-        fontWeight: 'bold'
-      }}>
-        COMING SOON
+      
+      <div style={{ display: 'grid', gap: '12px', marginBottom: '20px' }}>
+        {rules?.map((rule) => (
+          <div
+            key={rule._id}
+            style={{
+              padding: '16px',
+              border: '2px solid #000000',
+              backgroundColor: '#ffffff',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}
+          >
+            {editingRuleName === rule._id ? (
+              <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
+                <input
+                  type="text"
+                  value={newRuleName}
+                  onChange={(e) => setNewRuleName(e.target.value)}
+                  placeholder="new rule"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSaveRuleName();
+                    } else if (e.key === 'Escape') {
+                      handleCancelRuleEdit();
+                    }
+                  }}
+                  onBlur={() => {
+                    // Small delay to allow onClick events to fire first
+                    setTimeout(() => {
+                      if (newRuleName.trim()) {
+                        handleSaveRuleName();
+                      } else {
+                        handleCancelRuleEdit();
+                      }
+                    }, 100);
+                  }}
+                  autoFocus
+                  style={{
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    padding: '4px',
+                    border: '1px solid #000000',
+                    backgroundColor: '#ffffff',
+                    flex: 1
+                  }}
+                />
+              </div>
+            ) : (
+              <>
+                <span 
+                  style={{ 
+                    fontSize: '16px', 
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    flex: 1
+                  }}
+                  onClick={() => setShowingRulePage(rule)}
+                >
+                  {rule.name}
+                </span>
+                <span style={{ fontSize: '12px', color: '#666666' }}>
+                  {Object.keys(rule.propertyFilters || {}).length} filters
+                </span>
+              </>
+            )}
+          </div>
+        ))}
       </div>
+      
+      <button
+        onClick={handleAddRule}
+        style={{
+          width: '100%',
+          padding: '16px',
+          fontSize: '16px',
+          fontWeight: 'bold',
+          backgroundColor: '#ffffff',
+          color: '#000000',
+          border: '2px solid #000000',
+          cursor: 'pointer'
+        }}
+      >
+        + ADD RULE
+      </button>
     </div>
-  )
+  );
 }
 
 function CalendarTab() {
@@ -2363,9 +2583,9 @@ function getEffectiveMissionSchedule(mission: Mission, date: string): { schedule
         
         const result = {
           scheduled: pattern.scheduled,
-          // Keep FULL day as empty strings, don't convert to specific times
-          startTime: pattern.startTime || '',
-          endTime: pattern.endTime || '',
+          // Ensure FULL day patterns return empty strings consistently
+          startTime: pattern.startTime === undefined ? '' : pattern.startTime,
+          endTime: pattern.endTime === undefined ? '' : pattern.endTime,
           isRepeated: !isThisTheOrigin, // Only repeated instances are marked as "repeated"
           isRepeatOrigin: isThisTheOrigin,
           isResetOrigin: false, // Pattern-derived schedule is never reset
@@ -2487,8 +2707,8 @@ function MissionCalendarGrid({
           every: repeatEvery,
           unit: repeatUnit,
           scheduled: schedule.scheduled,
-          startTime: schedule.startTime,
-          endTime: schedule.endTime
+          startTime: schedule.startTime || '',
+          endTime: schedule.endTime || ''
         });
         console.log('Successfully created mission repeat pattern for date:', startDate);
       } catch (error) {
@@ -2504,8 +2724,8 @@ function MissionCalendarGrid({
       id: missionId,
       date: startDate,
       scheduled: schedule.scheduled,
-      startTime: schedule.startTime,
-      endTime: schedule.endTime
+      startTime: schedule.startTime || '',
+      endTime: schedule.endTime || ''
     });
     
     setRepeatPopup(null);
@@ -2731,9 +2951,6 @@ function MissionCalendarCell({
   isToday?: boolean;
 }) {
   const [isFullDay, setIsFullDay] = useState(() => {
-    // FULL day can be represented as:
-    // 1. Empty strings (from FULL day repeat patterns)
-    // 2. '00:00' to '23:59' (from manual TIME setting that covers full day)
     const isEmptyStrings = !schedule?.startTime && !schedule?.endTime;
     const isFullDayTimes = schedule?.startTime === '00:00' && schedule?.endTime === '23:59';
     return isEmptyStrings || isFullDayTimes;
@@ -2744,20 +2961,22 @@ function MissionCalendarCell({
   useEffect(() => {
     console.log('MissionCalendarCell useEffect - syncing with schedule:', { date, schedule });
     
-    // Sync with schedule data (both direct and pattern-derived)
     if (schedule) {
       setLocalStartTime(schedule?.startTime || '');
       setLocalEndTime(schedule?.endTime || '');
       
-      // Update full day state based on saved times
-      const isEmptyStrings = !schedule?.startTime && !schedule?.endTime;
+      // Check for empty strings explicitly (FULL day patterns)
+      const isEmptyStrings = (schedule?.startTime === '' || !schedule?.startTime) && 
+                            (schedule?.endTime === '' || !schedule?.endTime);
       const isFullDayTimes = schedule?.startTime === '00:00' && schedule?.endTime === '23:59';
       const shouldBeFullDay = isEmptyStrings || isFullDayTimes;
       
-      console.log('FULL day detection:', { 
+      console.log('Mission FULL day detection:', { 
         date, 
         startTime: schedule?.startTime, 
         endTime: schedule?.endTime,
+        startTimeType: typeof schedule?.startTime,
+        endTimeType: typeof schedule?.endTime,
         isEmptyStrings, 
         isFullDayTimes, 
         shouldBeFullDay 
@@ -2772,15 +2991,13 @@ function MissionCalendarCell({
 
   const handleScheduledToggle = () => {
     const newScheduled = !isScheduled;
-    console.log('handleScheduledToggle called:', { date, newScheduled, schedule });
+    console.log('handleScheduledToggle called for mission:', { date, newScheduled, schedule });
     
     if (newScheduled) {
-      // CHECKING - Always start fresh, no memory of previous state
       console.log('Checking mission cell - starting fresh, resetting all settings');
       setIsFullDay(true);
       setLocalStartTime('');
       setLocalEndTime('');
-      // Use empty strings for FULL day mode to maintain pattern consistency
       onUpdateSchedule({
         id: missionId,
         date: date,
@@ -2789,19 +3006,17 @@ function MissionCalendarCell({
         endTime: ''
       });
     } else {
-      // UNCHECKING - If this was a repeated instance, show popup to ask about removal scope
-      console.log('Unchecking - checking if repeated:', { 
+      console.log('Unchecking - checking if repeated mission:', { 
         isRepeated: schedule?.isRepeated, 
         originalStartDate: schedule?.originalStartDate 
       });
       
       if (schedule?.isRepeated && schedule?.originalStartDate) {
-        console.log('Opening remove repeat popup for date:', date);
+        console.log('Opening remove repeat popup for mission date:', date);
         onOpenRemoveRepeat(missionId, date);
-        return; // Don't call onUpdateSchedule yet, wait for user choice
+        return;
       } else {
-        // Regular toggle
-        console.log('Regular toggle - setting scheduled to false');
+        console.log('Regular toggle - setting mission scheduled to false');
         onUpdateSchedule({
           id: missionId,
           date: date,
@@ -2813,11 +3028,10 @@ function MissionCalendarCell({
 
   const handleTimeUpdate = () => {
     if (isScheduled) {
-      // For FULL day mode, pass empty strings to maintain pattern consistency
       const startTime = isFullDay ? '' : (localStartTime || '');
       const endTime = isFullDay ? '' : (localEndTime || '');
       
-      console.log('handleTimeUpdate:', { date, isFullDay, startTime, endTime });
+      console.log('handleTimeUpdate for mission:', { date, isFullDay, startTime, endTime });
       onUpdateSchedule({
         id: missionId,
         date: date,
@@ -2831,18 +3045,16 @@ function MissionCalendarCell({
   const handleModeSwitch = (fullDay: boolean) => {
     setIsFullDay(fullDay);
     
-    // When switching to TIME mode, clear the time values
     if (!fullDay) {
       setLocalStartTime('');
       setLocalEndTime('');
     }
     
     if (isScheduled) {
-      // For FULL day mode, use empty strings to maintain pattern consistency
       const startTime = fullDay ? '' : '';
       const endTime = fullDay ? '' : '';
       
-      console.log('handleModeSwitch:', { date, fullDay, startTime, endTime });
+      console.log('handleModeSwitch for mission:', { date, fullDay, startTime, endTime });
       onUpdateSchedule({
         id: missionId,
         date: date,
@@ -2971,14 +3183,7 @@ function MissionCalendarCell({
       {isScheduled && (
         <div style={{ display: 'flex', gap: '1px', marginTop: 'auto' }}>
           {(() => {
-            // Show REPEAT button for:
-            // 1. Regular dates (not part of any pattern)
-            // 2. Dates that were broken from patterns (have direct schedule, not pattern-derived)
-            // 3. Reset original dates (were unchecked and rechecked) - isResetOrigin: true
-            // 
-            // DON'T show REPEAT button for:
-            // 4. Non-reset original dates (still part of active pattern) - isRepeatOrigin: true, isResetOrigin: false
-            // 5. Repeated instances - isRepeated: true
+            // Show REPEAT button for mission dates that are not part of active patterns
             
             const shouldShowRepeat = !schedule?.isRepeated && (!schedule?.isRepeatOrigin || schedule?.isResetOrigin);
             console.log('Button logic for mission date:', date, {
@@ -2992,13 +3197,11 @@ function MissionCalendarCell({
             });
             
             return shouldShowRepeat ? (
-              // Regular date or broken from pattern - show REPEAT
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   console.log('Mission repeat button clicked for date:', date, 'missionId:', missionId, 'isFullDay:', isFullDay);
                   
-                  // For FULL day, pass empty strings to indicate full day (not specific times)
                   const repeatSchedule = {
                     scheduled: isScheduled,
                     startTime: isFullDay ? '' : localStartTime,
@@ -3027,7 +3230,1096 @@ function MissionCalendarCell({
                 REPEAT
               </button>
             ) : (
-              // Repeated date - no button, just empty space
+              <div style={{ flex: 1, minHeight: '20px' }}></div>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RulePage({ 
+  rule, 
+  onBack,
+  people 
+}: { 
+  rule: Rule; 
+  onBack: () => void;
+  people: Person[] | undefined;
+}) {
+  const rules = useQuery(api.people.listRules);
+  const updateRuleName = useMutation(api.people.updateRuleName);
+  const updateRulePropertyFilter = useMutation(api.people.updateRulePropertyFilter);
+  const removeRulePropertyFilter = useMutation(api.people.removeRulePropertyFilter);
+  const updateRuleSchedule = useMutation(api.people.updateRuleSchedule);
+  const addRuleRepeatPattern = useMutation(api.people.addRuleRepeatPattern);
+  const removeRuleRepeatPattern = useMutation(api.people.removeRuleRepeatPattern);
+  const addRuleRepeatException = useMutation(api.people.addRuleRepeatException);
+  const stopFutureRuleRepeats = useMutation(api.people.stopFutureRuleRepeats);
+  const removeRule = useMutation(api.people.removeRule);
+
+  // Get the current rule data with live updates
+  const currentRule = rules?.find(r => r._id === rule._id) || rule;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px' }}>
+        <button 
+          onClick={onBack}
+          style={{
+            fontSize: '24px',
+            fontWeight: 'bold',
+            backgroundColor: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            marginRight: '20px'
+          }}
+        >
+          ←
+        </button>
+        <h2 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>
+          EDIT RULE
+        </h2>
+      </div>
+      
+      <div style={{ marginBottom: '20px' }}>
+        <input
+          type="text"
+          value={currentRule.name}
+          onChange={(e) => {
+            const newName = e.target.value;
+            // Only update if it's not empty and doesn't already exist
+            if (newName.trim()) {
+              const nameExists = rules?.some(r => 
+                r.name.toLowerCase() === newName.trim().toLowerCase() && 
+                r._id !== currentRule._id
+              );
+              
+              if (!nameExists) {
+                updateRuleName({ id: currentRule._id as any, name: newName.trim() });
+              }
+            }
+          }}
+          onBlur={(e) => {
+            const newName = e.target.value;
+            if (!newName.trim()) {
+              // If empty, revert or delete
+              if (currentRule.name === "new rule") {
+                removeRule({ id: currentRule._id as any });
+                onBack();
+              }
+            }
+          }}
+          style={{
+            fontSize: '18px',
+            fontWeight: 'bold',
+            padding: '8px',
+            border: '2px solid #000000',
+            backgroundColor: '#ffffff',
+            width: '100%'
+          }}
+        />
+      </div>
+
+      {/* Property Filters Section */}
+      <div style={{ marginBottom: '30px' }}>
+        <div style={{
+          fontSize: '16px',
+          fontWeight: 'bold',
+          marginBottom: '12px'
+        }}>
+          PROPERTY FILTERS:
+        </div>
+        
+        <div style={{ display: 'grid', gap: '8px', marginBottom: '12px' }}>
+          {Object.keys(currentRule.propertyFilters || {}).map((propertyKey) => {
+            const filter = currentRule.propertyFilters[propertyKey] as { required: boolean; value: boolean };
+            const propertyDisplayName = people?.[0]?.propertyNames?.[propertyKey] || propertyKey;
+            
+            return (
+              <div
+                key={propertyKey}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '12px',
+                  border: '2px solid #000000',
+                  backgroundColor: '#ffffff'
+                }}
+              >
+                <span style={{ fontSize: '14px', flex: 1 }}>
+                  {propertyDisplayName}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {/* Single checkbox: Checked = person must have property, Unchecked = person must NOT have property */}
+                  <div
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      border: '2px solid #000000',
+                      backgroundColor: filter.required ? '#000000' : '#ffffff',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      fontSize: '12px',
+                      color: filter.required ? '#ffffff' : '#000000',
+                      fontWeight: 'bold',
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => updateRulePropertyFilter({ 
+                      id: currentRule._id as any, 
+                      propertyKey, 
+                      required: !filter.required, 
+                      value: true // Always true since we're filtering for boolean properties
+                    })}
+                    title={filter.required ? 'Person must have this property' : 'Person must NOT have this property'}
+                  >
+                    {filter.required ? '✓' : ''}
+                  </div>
+                  
+                  {/* Remove filter button */}
+                  <button
+                    onClick={() => removeRulePropertyFilter({ 
+                      id: currentRule._id as any, 
+                      propertyKey 
+                    })}
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: '10px',
+                      fontWeight: 'bold',
+                      backgroundColor: '#ffffff',
+                      color: '#000000',
+                      border: '1px solid #000000',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    REMOVE
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        
+        {/* Add Property Filter Dropdown */}
+        {people && people.length > 0 && (
+          <select
+            onChange={(e) => {
+              const propertyKey = e.target.value;
+              if (propertyKey && !currentRule.propertyFilters[propertyKey]) {
+                updateRulePropertyFilter({ 
+                  id: currentRule._id as any, 
+                  propertyKey, 
+                  required: true, 
+                  value: true 
+                });
+              }
+              e.target.value = ''; // Reset selection
+            }}
+            style={{
+              width: '100%',
+              padding: '8px',
+              fontSize: '14px',
+              border: '2px solid #000000',
+              backgroundColor: '#ffffff',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="">+ ADD PROPERTY FILTER</option>
+            {Object.keys(people[0]?.properties || {}).filter(key => 
+              !currentRule.propertyFilters[key]
+            ).map(propertyKey => {
+              const displayName = people[0]?.propertyNames?.[propertyKey] || propertyKey;
+              return (
+                <option key={propertyKey} value={propertyKey}>
+                  {displayName}
+                </option>
+              );
+            })}
+          </select>
+        )}
+      </div>
+
+      {/* Compatible People List */}
+      <div style={{ marginBottom: '30px' }}>
+        <div style={{
+          fontSize: '16px',
+          fontWeight: 'bold',
+          marginBottom: '12px'
+        }}>
+          APPLICABLE TO:
+        </div>
+        
+        <div style={{ display: 'grid', gap: '8px' }}>
+          {(() => {
+            // Filter people based on rule property filters
+            const applicablePeople = people?.filter(person => {
+              // If no filters, applies to everyone
+              if (!currentRule.propertyFilters || Object.keys(currentRule.propertyFilters).length === 0) {
+                return true;
+              }
+              
+              // Check each filter
+              return Object.entries(currentRule.propertyFilters).every(([propertyKey, filter]) => {
+                const filterTyped = filter as { required: boolean; value: boolean };
+                const personHasProperty = person.properties[propertyKey] === true;
+                
+                // Simplified logic: required = person must have property, !required = person must NOT have property
+                return filterTyped.required ? personHasProperty : !personHasProperty;
+              });
+            }) || [];
+
+            if (applicablePeople.length === 0) {
+              return (
+                <div style={{
+                  padding: '16px',
+                  border: '2px solid #000000',
+                  backgroundColor: '#f5f5f5',
+                  textAlign: 'center',
+                  fontSize: '14px',
+                  color: '#666666'
+                }}>
+                  {people && people.length > 0 
+                    ? 'No people match the current filters' 
+                    : 'No people available'
+                  }
+                </div>
+              );
+            }
+
+            return applicablePeople.map(person => (
+              <div
+                key={person._id}
+                style={{
+                  padding: '12px',
+                  border: '2px solid #000000',
+                  backgroundColor: '#ffffff',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}
+              >
+                <span style={{ fontSize: '14px', fontWeight: 'bold' }}>
+                  {person.name}
+                </span>
+                <div style={{ display: 'flex', gap: '8px', fontSize: '10px' }}>
+                  {Object.entries(currentRule.propertyFilters || {}).map(([propertyKey, filter]) => {
+                    const filterTyped = filter as { required: boolean; value: boolean };
+                    const propertyDisplayName = people?.[0]?.propertyNames?.[propertyKey] || propertyKey;
+                    const personHasProperty = person.properties[propertyKey] === true;
+                    const matchesFilter = filterTyped.required ? personHasProperty : !personHasProperty;
+                    
+                    return (
+                      <span
+                        key={propertyKey}
+                        style={{
+                          padding: '2px 6px',
+                          backgroundColor: matchesFilter ? '#e8f5e8' : '#ffe8e8',
+                          border: '1px solid ' + (matchesFilter ? '#4CAF50' : '#f44336'),
+                          borderRadius: '3px',
+                          fontSize: '10px'
+                        }}
+                        title={`${propertyDisplayName}: ${filterTyped.required ? 'Must have property' : 'Must NOT have property'}`}
+                      >
+                        {propertyDisplayName.slice(0, 8)}...
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ));
+          })()}
+        </div>
+      </div>
+
+                     {/* Rule Schedule Calendar */}
+               <div style={{ marginBottom: '30px' }}>
+                 <div style={{
+                   fontSize: '16px',
+                   fontWeight: 'bold',
+                   marginBottom: '12px'
+                 }}>
+                   NOT SCHEDULE WHEN:
+                 </div>
+                 
+                 <RuleCalendarGrid
+                   rule={currentRule}
+                   onUpdateSchedule={updateRuleSchedule}
+                   onAddRepeatPattern={addRuleRepeatPattern}
+                   onRemoveRepeatPattern={removeRuleRepeatPattern}
+                   onAddRepeatException={addRuleRepeatException}
+                   onStopFutureRepeats={stopFutureRuleRepeats}
+                 />
+               </div>
+      
+      <button
+        onClick={() => removeRule({ id: currentRule._id as any })}
+        style={{
+          width: '100%',
+          padding: '12px',
+          fontSize: '14px',
+          fontWeight: 'bold',
+          backgroundColor: '#ffffff',
+          color: '#000000',
+          border: '2px solid #000000',
+          cursor: 'pointer'
+        }}
+      >
+        DELETE RULE
+      </button>
+    </div>
+  );
+}
+
+// Helper function to check if a date matches a rule repeat pattern
+function matchesRuleRepeatPattern(date: string, startDate: string, pattern: { every: number; unit: 'day' | 'week' | 'month' }): boolean {
+  const targetDate = new Date(date + 'T00:00:00');
+  const patternStartDate = new Date(startDate + 'T00:00:00');
+  
+  if (targetDate <= patternStartDate) return false;
+  
+  const diffTime = targetDate.getTime() - patternStartDate.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (pattern.unit === 'day') {
+    return diffDays % pattern.every === 0;
+  } else if (pattern.unit === 'week') {
+    return diffDays % (pattern.every * 7) === 0;
+  } else if (pattern.unit === 'month') {
+    // For monthly repeats, check if it's the same day of month
+    const targetDay = targetDate.getDate();
+    const startDay = patternStartDate.getDate();
+    if (targetDay !== startDay) return false;
+    
+    const monthDiff = (targetDate.getFullYear() - patternStartDate.getFullYear()) * 12 + 
+                     (targetDate.getMonth() - patternStartDate.getMonth());
+    return monthDiff % pattern.every === 0;
+  }
+  
+  return false;
+}
+
+// Helper function to get effective rule schedule for a date (including repeats)
+function getEffectiveRuleSchedule(rule: Rule, date: string): { scheduled: boolean; startTime?: string; endTime?: string; isRepeated?: boolean; isRepeatOrigin?: boolean; isResetOrigin?: boolean; originalStartDate?: string; futureRepeatsStopped?: boolean; wasBrokenFromPattern?: boolean } | undefined {
+  // Check if this date is the origin of a repeat pattern
+  const isRepeatOrigin = rule.repeatPatterns && rule.repeatPatterns[date];
+  
+  console.log('getEffectiveRuleSchedule called for date:', date, {
+    hasDirectSchedule: !!rule.schedule[date],
+    isRepeatOrigin: !!isRepeatOrigin,
+    directSchedule: rule.schedule[date],
+    repeatPatterns: rule.repeatPatterns ? Object.keys(rule.repeatPatterns) : [],
+    repeatExceptions: rule.repeatExceptions || [],
+    isThisDateInExceptions: rule.repeatExceptions?.includes(date)
+  });
+  
+  // PRIORITY 1: Direct schedule for repeat origins (reset case)
+  if (isRepeatOrigin && rule.schedule[date]) {
+    const result = {
+      ...rule.schedule[date],
+      isRepeated: false,
+      isRepeatOrigin: true,
+      isResetOrigin: true,
+      originalStartDate: date,
+      futureRepeatsStopped: hasFutureRuleRepeatsStopped(rule, date),
+      wasBrokenFromPattern: false
+    };
+    
+    console.log('Returning RESET original rule cell for date:', date, result);
+    return result;
+  }
+  
+  // PRIORITY 2: Direct schedule for non-pattern dates (broken from pattern)
+  if (rule.schedule[date] && !isRepeatOrigin) {
+    let wasBrokenFromPattern = false;
+    if (rule.repeatPatterns) {
+      for (const [startDate, pattern] of Object.entries(rule.repeatPatterns)) {
+        if (matchesRuleRepeatPattern(date, startDate, pattern)) {
+          wasBrokenFromPattern = true;
+          break;
+        }
+      }
+    }
+    
+    const result = {
+      ...rule.schedule[date],
+      isRepeated: false,
+      isRepeatOrigin: false,
+      isResetOrigin: false,
+      originalStartDate: undefined,
+      futureRepeatsStopped: false,
+      wasBrokenFromPattern
+    };
+    
+    console.log('Returning direct schedule for broken-from-pattern rule date:', date, result);
+    return result;
+  }
+
+  // PRIORITY 3: Check if date is in exceptions (canceled repeats)
+  if (rule.repeatExceptions?.includes(date) && !rule.schedule[date]) {
+    console.log('Date is in rule exceptions (canceled repeat) and has no direct schedule:', date);
+    return undefined;
+  }
+  
+  if (rule.repeatExceptions?.includes(date) && rule.schedule[date]) {
+    console.log('Date is in rule exceptions BUT has direct schedule (user override):', date);
+  }
+  
+  // PRIORITY 4: Check repeat patterns (including original dates without reset)
+  if (rule.repeatPatterns) {
+    console.log('Checking rule repeat patterns for date:', date, 'patterns:', Object.keys(rule.repeatPatterns));
+    for (const [startDate, pattern] of Object.entries(rule.repeatPatterns)) {
+      if (matchesRuleRepeatPattern(date, startDate, pattern)) {
+        const isThisTheOrigin = date === startDate;
+        
+        const result = {
+          scheduled: pattern.scheduled,
+          // Ensure FULL day patterns return empty strings consistently
+          startTime: pattern.startTime === undefined ? '' : pattern.startTime,
+          endTime: pattern.endTime === undefined ? '' : pattern.endTime,
+          isRepeated: !isThisTheOrigin,
+          isRepeatOrigin: isThisTheOrigin,
+          isResetOrigin: false,
+          originalStartDate: startDate,
+          futureRepeatsStopped: hasFutureRuleRepeatsStopped(rule, startDate),
+          wasBrokenFromPattern: false
+        };
+        
+        if (isThisTheOrigin) {
+          console.log('Returning ORIGINAL rule pattern cell for date:', date, result);
+        } else {
+          console.log('Returning REPEATED rule instance for date:', date, 'from pattern:', startDate, result);
+        }
+        return result;
+      }
+    }
+  }
+  
+  console.log('No rule schedule found for date:', date, 'returning undefined');
+  return undefined;
+}
+
+// Helper function to check if a rule pattern has future repeats stopped
+function hasFutureRuleRepeatsStopped(rule: Rule, startDate: string): boolean {
+  if (!rule.repeatPatterns || !rule.repeatPatterns[startDate] || !rule.repeatExceptions) {
+    return false;
+  }
+  
+  const pattern = rule.repeatPatterns[startDate];
+  const today = new Date().toISOString().split('T')[0];
+  const todayDate = new Date(today + 'T00:00:00');
+  const patternStartDate = new Date(startDate + 'T00:00:00');
+  
+  // Check if there's at least one future exception that matches this pattern
+  for (const exceptionDate of rule.repeatExceptions) {
+    const exceptionDateObj = new Date(exceptionDate + 'T00:00:00');
+    
+    // Only check future dates
+    if (exceptionDateObj > todayDate) {
+      const diffTime = exceptionDateObj.getTime() - patternStartDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays > 0) {
+        let matches = false;
+        if (pattern.unit === 'day') {
+          matches = diffDays % pattern.every === 0;
+        } else if (pattern.unit === 'week') {
+          matches = diffDays % (pattern.every * 7) === 0;
+        } else if (pattern.unit === 'month') {
+          const targetDay = exceptionDateObj.getDate();
+          const startDay = patternStartDate.getDate();
+          if (targetDay === startDay) {
+            const monthDiff = (exceptionDateObj.getFullYear() - patternStartDate.getFullYear()) * 12 + 
+                             (exceptionDateObj.getMonth() - patternStartDate.getMonth());
+            matches = monthDiff % pattern.every === 0;
+          }
+        }
+        
+        if (matches) {
+          return true;
+        }
+      }
+    }
+  }
+  
+  return false;
+}
+
+// Rule Calendar Component
+function RuleCalendarGrid({ 
+  rule,
+  onUpdateSchedule,
+  onAddRepeatPattern,
+  onRemoveRepeatPattern,
+  onAddRepeatException,
+  onStopFutureRepeats
+}: {
+  rule: Rule;
+  onUpdateSchedule: any;
+  onAddRepeatPattern: any;
+  onRemoveRepeatPattern: any;
+  onAddRepeatException: any;
+  onStopFutureRepeats: any;
+}) {
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [repeatPopup, setRepeatPopup] = useState<{
+    open: boolean;
+    ruleId: string;
+    date: string;
+    schedule: { scheduled: boolean; startTime?: string; endTime?: string };
+  } | null>(null);
+  const [removeRepeatPopup, setRemoveRepeatPopup] = useState<{
+    open: boolean;
+    ruleId: string;
+    date: string;
+  } | null>(null);
+
+  const { weekNumbers, dates } = getThreeWeeks(weekOffset);
+  const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+  const handleApplyRepeat = async (ruleId: string, startDate: string, schedule: { scheduled: boolean; startTime?: string; endTime?: string }, repeatEvery: number, repeatUnit: 'day' | 'week' | 'month', enableRepeat: boolean) => {
+    console.log('handleApplyRepeat called for rule:', { 
+      ruleId, 
+      startDate, 
+      schedule, 
+      repeatEvery, 
+      repeatUnit, 
+      enableRepeat,
+      existingPatterns: rule.repeatPatterns ? Object.keys(rule.repeatPatterns) : []
+    });
+    
+    if (enableRepeat) {
+      console.log('Creating rule repeat pattern:', { ruleId, startDate, schedule, repeatEvery, repeatUnit });
+      try {
+        await onAddRepeatPattern({
+          id: ruleId as any,
+          startDate,
+          every: repeatEvery,
+          unit: repeatUnit,
+          scheduled: schedule.scheduled,
+          startTime: schedule.startTime || '',
+          endTime: schedule.endTime || ''
+        });
+        console.log('Successfully created rule repeat pattern for date:', startDate);
+      } catch (error) {
+        console.error('Failed to create rule repeat pattern:', error);
+      }
+    } else {
+      console.log('Not creating rule repeat pattern - checkbox not enabled');
+    }
+    
+    console.log('Updating rule schedule for start date:', startDate);
+    await onUpdateSchedule({
+      id: ruleId,
+      date: startDate,
+      scheduled: schedule.scheduled,
+      startTime: schedule.startTime || '',
+      endTime: schedule.endTime || ''
+    });
+    
+    setRepeatPopup(null);
+  };
+
+  return (
+    <div>
+      {/* Navigation */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: '12px' 
+      }}>
+        <button
+          onClick={() => setWeekOffset(weekOffset - 1)}
+          style={{
+            fontSize: '20px',
+            fontWeight: 'bold',
+            backgroundColor: 'transparent',
+            border: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          ←
+        </button>
+        
+                         <div style={{ fontSize: '14px', fontWeight: 'bold' }}>
+                   NOT SCHEDULE WHEN
+                 </div>
+        
+        <button
+          onClick={() => setWeekOffset(weekOffset + 1)}
+          style={{
+            fontSize: '20px',
+            fontWeight: 'bold',
+            backgroundColor: 'transparent',
+            border: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          →
+        </button>
+      </div>
+
+      {/* Calendar Grid */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '50px repeat(3, 1fr)',
+        gap: '1px',
+        border: '2px solid #000000',
+        backgroundColor: '#000000'
+      }}>
+        {/* Header row - week numbers */}
+        <div style={{
+          backgroundColor: '#ffffff',
+          padding: '8px 4px',
+          fontSize: '10px',
+          fontWeight: 'bold',
+          textAlign: 'center'
+        }}>
+          WEEK
+        </div>
+        
+        {weekNumbers.map((weekNum) => (
+          <div
+            key={weekNum}
+            style={{
+              backgroundColor: '#ffffff',
+              padding: '8px 4px',
+              fontSize: '10px',
+              fontWeight: 'bold',
+              textAlign: 'center'
+            }}
+          >
+            {weekNum}
+          </div>
+        ))}
+
+        {/* Calendar rows - one for each day of the week */}
+        {dayNames.map((dayName, dayIndex) => (
+          <>
+            {/* Day name in first column */}
+            <div
+              key={`day-${dayName}`}
+              style={{
+                backgroundColor: '#ffffff',
+                padding: '4px',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                textAlign: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              {dayName}
+            </div>
+            
+            {/* Days for this day of week across the 3 weeks */}
+            {dates.map((week, weekIndex) => {
+              const date = week[dayIndex];
+              return (
+                <RuleCalendarCell
+                  key={`${weekIndex}-${dayIndex}`}
+                  date={date}
+                  schedule={getEffectiveRuleSchedule(rule, date)}
+                  onUpdateSchedule={onUpdateSchedule}
+                  onOpenRepeat={(ruleId, date, schedule) => {
+                    console.log('Setting rule repeat popup state:', { ruleId, date, schedule });
+                    setRepeatPopup({ open: true, ruleId, date, schedule });
+                  }}
+                  onCancelRepeat={async (ruleId, date) => {
+                    console.log('Canceling rule repeat for date:', date);
+                    await onAddRepeatException({ id: ruleId as any, date });
+                  }}
+                  onOpenRemoveRepeat={(ruleId, date) => {
+                    console.log('Opening remove rule repeat popup for date:', date);
+                    setRemoveRepeatPopup({ open: true, ruleId, date });
+                  }}
+                  ruleId={rule._id}
+                  isToday={isToday(date)}
+                />
+              );
+            })}
+          </>
+        ))}
+      </div>
+
+      {/* Rule Repeat Popup */}
+      {repeatPopup?.open && (
+        <RepeatPopup
+          personId={repeatPopup.ruleId}
+          date={repeatPopup.date}
+          availability={{
+            unavailable: repeatPopup.schedule.scheduled,
+            startTime: repeatPopup.schedule.startTime,
+            endTime: repeatPopup.schedule.endTime
+          }}
+          onApply={async (ruleId: string, startDate: string, schedule: any, repeatEvery: number, repeatUnit: any, enableRepeat: boolean) => {
+            await handleApplyRepeat(ruleId, startDate, {
+              scheduled: schedule.unavailable,
+              startTime: schedule.startTime,
+              endTime: schedule.endTime
+            }, repeatEvery, repeatUnit, enableRepeat);
+          }}
+          onClose={() => {
+            console.log('Closing rule repeat popup');
+            setRepeatPopup(null);
+          }}
+        />
+      )}
+
+      {/* Remove Rule Repeat Popup */}
+      {removeRepeatPopup?.open && (
+        <RemoveRepeatPopup
+          personId={removeRepeatPopup.ruleId}
+          date={removeRepeatPopup.date}
+          onRemoveOne={(ruleId: string, date: string) => {
+            console.log('Removing only this rule date (adding exception):', date);
+            onAddRepeatException({ id: ruleId as any, date });
+            setRemoveRepeatPopup(null);
+          }}
+          onRemoveAllFollowing={(ruleId: string, date: string) => {
+            console.log('Removing this rule date and all following:', date);
+            
+            // Find the pattern this date belongs to
+            const patternStartDate = rule.repeatPatterns ? Object.keys(rule.repeatPatterns).find(startDate => 
+              matchesRuleRepeatPattern(date, startDate, rule.repeatPatterns![startDate])
+            ) : null;
+            
+            console.log('Rule pattern analysis:', {
+              date,
+              patternStartDate,
+              isOriginalDate: date === patternStartDate
+            });
+            
+            if (patternStartDate) {
+              if (date === patternStartDate) {
+                console.log('Deleting entire rule pattern starting from:', patternStartDate);
+                onRemoveRepeatPattern({ id: ruleId as any, startDate: patternStartDate });
+              } else {
+                console.log('Stopping future rule repeats from:', date);
+                onStopFutureRepeats({ 
+                  id: ruleId as any, 
+                  startDate: patternStartDate,
+                  customStopFromDate: date
+                });
+              }
+            }
+            
+            setRemoveRepeatPopup(null);
+          }}
+          onClose={() => {
+            console.log('Closing remove rule repeat popup');
+            setRemoveRepeatPopup(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function RuleCalendarCell({ 
+  date, 
+  schedule,
+  onUpdateSchedule,
+  onOpenRepeat,
+  onCancelRepeat,
+  onOpenRemoveRepeat,
+  ruleId,
+  isToday: isTodayProp = false
+}: {
+  date: string;
+  schedule?: { scheduled: boolean; startTime?: string; endTime?: string; isRepeated?: boolean; isRepeatOrigin?: boolean; isResetOrigin?: boolean; originalStartDate?: string; futureRepeatsStopped?: boolean; wasBrokenFromPattern?: boolean };
+  onUpdateSchedule: any;
+  onOpenRepeat: (ruleId: string, date: string, schedule: { scheduled: boolean; startTime?: string; endTime?: string }) => void;
+  onCancelRepeat: (ruleId: string, date: string) => void;
+  onOpenRemoveRepeat: (ruleId: string, date: string) => void;
+  ruleId: string;
+  isToday?: boolean;
+}) {
+  const [isFullDay, setIsFullDay] = useState(() => {
+    // Check for empty strings explicitly (FULL day patterns)
+    const isEmptyStrings = (schedule?.startTime === '' || !schedule?.startTime) && 
+                          (schedule?.endTime === '' || !schedule?.endTime);
+    const isFullDayTimes = schedule?.startTime === '00:00' && schedule?.endTime === '23:59';
+    return isEmptyStrings || isFullDayTimes;
+  });
+  const [localStartTime, setLocalStartTime] = useState(schedule?.startTime || '');
+  const [localEndTime, setLocalEndTime] = useState(schedule?.endTime || '');
+
+  useEffect(() => {
+    console.log('RuleCalendarCell useEffect - syncing with restriction schedule:', { date, schedule });
+    
+    if (schedule) {
+      setLocalStartTime(schedule?.startTime || '');
+      setLocalEndTime(schedule?.endTime || '');
+      
+      // Check for empty strings explicitly (FULL day patterns)
+      const isEmptyStrings = (schedule?.startTime === '' || !schedule?.startTime) && 
+                            (schedule?.endTime === '' || !schedule?.endTime);
+      const isFullDayTimes = schedule?.startTime === '00:00' && schedule?.endTime === '23:59';
+      const shouldBeFullDay = isEmptyStrings || isFullDayTimes;
+      
+      console.log('Rule restriction FULL day detection:', { 
+        date, 
+        startTime: schedule?.startTime, 
+        endTime: schedule?.endTime,
+        startTimeType: typeof schedule?.startTime,
+        endTimeType: typeof schedule?.endTime,
+        isEmptyStrings, 
+        isFullDayTimes, 
+        shouldBeFullDay 
+      });
+      
+      setIsFullDay(shouldBeFullDay);
+    }
+  }, [schedule, date]);
+
+  const isScheduled = schedule?.scheduled || false;
+  const dayNumber = getDayOfMonth(date);
+
+  const handleScheduledToggle = () => {
+    const newScheduled = !isScheduled;
+    console.log('handleScheduledToggle called for rule (NOT schedule when):', { date, newScheduled, schedule });
+    
+    if (newScheduled) {
+      console.log('Checking rule cell - marking when NOT to schedule, resetting all settings');
+      setIsFullDay(true);
+      setLocalStartTime('');
+      setLocalEndTime('');
+      onUpdateSchedule({
+        id: ruleId,
+        date: date,
+        scheduled: true,
+        startTime: '',
+        endTime: ''
+      });
+    } else {
+      console.log('Unchecking - checking if repeated rule restriction:', { 
+        isRepeated: schedule?.isRepeated, 
+        originalStartDate: schedule?.originalStartDate 
+      });
+      
+      if (schedule?.isRepeated && schedule?.originalStartDate) {
+        console.log('Opening remove repeat popup for rule restriction date:', date);
+        onOpenRemoveRepeat(ruleId, date);
+        return;
+      } else {
+        console.log('Regular toggle - removing rule restriction');
+        onUpdateSchedule({
+          id: ruleId,
+          date: date,
+          scheduled: false
+        });
+      }
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (isScheduled) {
+      const startTime = isFullDay ? '' : (localStartTime || '');
+      const endTime = isFullDay ? '' : (localEndTime || '');
+      
+      console.log('handleTimeUpdate for rule restriction:', { date, isFullDay, startTime, endTime });
+      onUpdateSchedule({
+        id: ruleId,
+        date: date,
+        scheduled: true,
+        startTime,
+        endTime
+      });
+    }
+  };
+
+  const handleModeSwitch = (fullDay: boolean) => {
+    setIsFullDay(fullDay);
+    
+    if (!fullDay) {
+      setLocalStartTime('');
+      setLocalEndTime('');
+    }
+    
+    if (isScheduled) {
+      const startTime = fullDay ? '' : '';
+      const endTime = fullDay ? '' : '';
+      
+      console.log('handleModeSwitch for rule restriction:', { date, fullDay, startTime, endTime });
+      onUpdateSchedule({
+        id: ruleId,
+        date: date,
+        scheduled: true,
+        startTime,
+        endTime
+      });
+    }
+  };
+
+  return (
+    <div
+      style={{
+        backgroundColor: isTodayProp ? '#f0f0f0' : '#ffffff',
+        minHeight: '120px',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: '4px',
+        position: 'relative'
+      }}
+    >
+      {/* Top row with date and checkbox */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: '4px'
+      }}>
+        {/* Date number - top left */}
+        <div style={{ 
+          fontSize: '12px', 
+          fontWeight: 'bold'
+        }}>
+          {dayNumber}
+        </div>
+
+        {/* Not Schedule checkbox - top right */}
+        <div
+          style={{
+            width: '16px',
+            height: '16px',
+            border: '2px solid #000000',
+            backgroundColor: isScheduled ? '#000000' : '#ffffff',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            fontSize: '10px',
+            color: isScheduled ? '#ffffff' : '#000000',
+            fontWeight: 'bold',
+            cursor: 'pointer'
+          }}
+          onClick={handleScheduledToggle}
+          title="Check to mark when NOT to schedule"
+        >
+          {isScheduled ? '✗' : ''}
+        </div>
+      </div>
+
+      {/* Full/Time mode switch */}
+      {isScheduled && (
+        <div style={{ display: 'flex', marginBottom: '4px' }}>
+          <button
+            onClick={() => handleModeSwitch(true)}
+            style={{
+              flex: 1,
+              fontSize: '8px',
+              padding: '2px',
+              backgroundColor: isFullDay ? '#000000' : '#ffffff',
+              color: isFullDay ? '#ffffff' : '#000000',
+              border: '2px solid #000000',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              minHeight: '20px'
+            }}
+          >
+            FULL
+          </button>
+          <button
+            onClick={() => handleModeSwitch(false)}
+            style={{
+              flex: 1,
+              fontSize: '8px',
+              padding: '2px',
+              backgroundColor: !isFullDay ? '#000000' : '#ffffff',
+              color: !isFullDay ? '#ffffff' : '#000000',
+              border: '2px solid #000000',
+              borderLeft: 'none',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              minHeight: '20px'
+            }}
+          >
+            TIME
+          </button>
+        </div>
+      )}
+
+      {/* Time inputs */}
+      {isScheduled && !isFullDay && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '2px',
+          marginBottom: '4px'
+        }}>
+          <TimeInput24
+            value={localStartTime}
+            onChange={setLocalStartTime}
+            onBlur={handleTimeUpdate}
+          />
+          <span style={{
+            fontSize: '8px',
+            fontWeight: 'bold',
+            color: '#000000'
+          }}>
+            to:
+          </span>
+          <TimeInput24
+            value={localEndTime}
+            onChange={setLocalEndTime}
+            onBlur={handleTimeUpdate}
+          />
+        </div>
+      )}
+
+      {/* Action buttons - full width */}
+      {isScheduled && (
+        <div style={{ display: 'flex', gap: '1px', marginTop: 'auto' }}>
+          {(() => {
+            const shouldShowRepeat = !schedule?.isRepeated && (!schedule?.isRepeatOrigin || schedule?.isResetOrigin);
+            console.log('Button logic for rule date:', date, {
+              schedule,
+              isRepeatOrigin: schedule?.isRepeatOrigin,
+              isResetOrigin: schedule?.isResetOrigin,
+              isRepeated: schedule?.isRepeated,
+              wasBrokenFromPattern: schedule?.wasBrokenFromPattern,
+              shouldShowRepeat,
+              hasDirectSchedule: !!schedule && !schedule.isRepeated
+            });
+            
+            return shouldShowRepeat ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  console.log('Rule repeat restriction button clicked for date:', date, 'ruleId:', ruleId, 'isFullDay:', isFullDay);
+                  
+                  const repeatSchedule = {
+                    scheduled: isScheduled,
+                    startTime: isFullDay ? '' : localStartTime,
+                    endTime: isFullDay ? '' : localEndTime
+                  };
+                  
+                  console.log('Passing restriction schedule to rule repeat popup:', { 
+                    ...repeatSchedule, 
+                    isFullDay,
+                    originalLocalTimes: { localStartTime, localEndTime }
+                  });
+                  onOpenRepeat(ruleId, date, repeatSchedule);
+                }}
+                style={{
+                  flex: 1,
+                  fontSize: '8px',
+                  fontWeight: 'bold',
+                  padding: '4px',
+                  backgroundColor: '#000000',
+                  color: '#ffffff',
+                  border: '2px solid #000000',
+                  cursor: 'pointer',
+                  minHeight: '20px'
+                }}
+              >
+                REPEAT
+              </button>
+            ) : (
               <div style={{ flex: 1, minHeight: '20px' }}></div>
             );
           })()}
@@ -3160,7 +4452,8 @@ function CalendarCell({
     // FULL day can be represented as:
     // 1. Empty strings (from FULL day repeat patterns)
     // 2. '00:00' to '23:59' (from manual TIME setting that covers full day)
-    const isEmptyStrings = !availability?.startTime && !availability?.endTime;
+    const isEmptyStrings = (availability?.startTime === '' || !availability?.startTime) && 
+                          (availability?.endTime === '' || !availability?.endTime);
     const isFullDayTimes = availability?.startTime === '00:00' && availability?.endTime === '23:59';
     return isEmptyStrings || isFullDayTimes;
   });
@@ -3176,7 +4469,8 @@ function CalendarCell({
       setLocalEndTime(availability?.endTime || '');
       
       // Update full day state based on saved times
-      const isEmptyStrings = !availability?.startTime && !availability?.endTime;
+      const isEmptyStrings = (availability?.startTime === '' || !availability?.startTime) && 
+                            (availability?.endTime === '' || !availability?.endTime);
       const isFullDayTimes = availability?.startTime === '00:00' && availability?.endTime === '23:59';
       const shouldBeFullDay = isEmptyStrings || isFullDayTimes;
       

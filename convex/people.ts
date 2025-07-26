@@ -492,6 +492,8 @@ export const addMission = mutation({
     return await ctx.db.insert("missions", { 
       name,
       userId: identity.subject,
+      minLength: 1, // Default minimum length
+      maxLength: undefined, // No maximum by default
       propertyFilters: {}, // { propertyKey: { required: boolean, value: boolean } }
       schedule: {}, // { date: { scheduled: boolean, startTime?: string, endTime?: string } }
       repeatPatterns: {}, // { startDate: { every: number, unit: 'day'|'week'|'month', scheduled: boolean, startTime?, endTime? } }
@@ -516,13 +518,39 @@ export const updateMissionName = mutation({
   },
 });
 
+// Update mission minimum length
+export const updateMissionMinLength = mutation({
+  args: { id: v.id("missions"), minLength: v.number() },
+  handler: async (ctx, { id, minLength }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    await ctx.db.patch(id, { minLength });
+  },
+});
+
+// Update mission maximum length
+export const updateMissionMaxLength = mutation({
+  args: { id: v.id("missions"), maxLength: v.optional(v.number()) },
+  handler: async (ctx, { id, maxLength }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    await ctx.db.patch(id, { maxLength });
+  },
+});
+
 // Update mission property filter
 export const updateMissionPropertyFilter = mutation({
   args: { 
     id: v.id("missions"),
     propertyKey: v.string(),
-    required: v.boolean(), // true = person WITH this property, false = person WITHOUT this property
-    value: v.boolean() // the value the property should have (true/false)
+    required: v.boolean(), // true = person must have property, false = person must NOT have property
+    value: v.boolean() // Always true for boolean properties (kept for compatibility)
   },
   handler: async (ctx, { id, propertyKey, required, value }) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -535,7 +563,7 @@ export const updateMissionPropertyFilter = mutation({
 
     const updatedFilters = {
       ...mission.propertyFilters,
-      [propertyKey]: { required, value }
+      [propertyKey]: { required, value: true } // Always true since we're filtering boolean properties
     };
 
     await ctx.db.patch(id, { propertyFilters: updatedFilters });
@@ -793,6 +821,327 @@ export const stopFutureMissionRepeats = mutation({
 // Delete a mission
 export const removeMission = mutation({
   args: { id: v.id("missions") },
+  handler: async (ctx, { id }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    await ctx.db.delete(id);
+  },
+});
+
+// ============= RULES MUTATIONS =============
+
+export const listRules = query({
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      return [];
+    }
+
+    return await ctx.db
+      .query("rules")
+      .filter((q) => q.eq(q.field("userId"), identity.subject))
+      .order("desc")
+      .collect();
+  },
+});
+
+export const addRule = mutation({
+  args: { name: v.string() },
+  handler: async (ctx, { name }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    return await ctx.db.insert("rules", {
+      name,
+      userId: identity.subject,
+      propertyFilters: {},
+      schedule: {},
+      repeatPatterns: {},
+      repeatExceptions: []
+    });
+  },
+});
+
+export const updateRuleName = mutation({
+  args: { id: v.id("rules"), name: v.string() },
+  handler: async (ctx, { id, name }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    await ctx.db.patch(id, { name });
+  },
+});
+
+export const updateRulePropertyFilter = mutation({
+  args: { 
+    id: v.id("rules"),
+    propertyKey: v.string(),
+    required: v.boolean(), // true = person must have property, false = person must NOT have property
+    value: v.boolean() // Always true for boolean properties (kept for compatibility)
+  },
+  handler: async (ctx, { id, propertyKey, required, value }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const rule = await ctx.db.get(id);
+    if (!rule) return;
+
+    const updatedFilters = {
+      ...rule.propertyFilters,
+      [propertyKey]: { required, value: true } // Always true since we're filtering boolean properties
+    };
+
+    await ctx.db.patch(id, { propertyFilters: updatedFilters });
+  },
+});
+
+export const removeRulePropertyFilter = mutation({
+  args: { 
+    id: v.id("rules"),
+    propertyKey: v.string()
+  },
+  handler: async (ctx, { id, propertyKey }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const rule = await ctx.db.get(id);
+    if (!rule) return;
+
+    const updatedFilters = { ...rule.propertyFilters };
+    delete updatedFilters[propertyKey];
+
+    await ctx.db.patch(id, { propertyFilters: updatedFilters });
+  },
+});
+
+export const updateRuleSchedule = mutation({
+  args: { 
+    id: v.id("rules"),
+    date: v.string(), // ISO date string (YYYY-MM-DD)
+    scheduled: v.boolean(),
+    startTime: v.optional(v.string()),
+    endTime: v.optional(v.string())
+  },
+  handler: async (ctx, { id, date, scheduled, startTime, endTime }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const rule = await ctx.db.get(id);
+    if (!rule) return;
+
+    const updatedSchedule = { ...rule.schedule };
+    
+    if (scheduled) {
+      updatedSchedule[date] = { scheduled, startTime, endTime };
+    } else {
+      delete updatedSchedule[date];
+    }
+
+    await ctx.db.patch(id, { schedule: updatedSchedule });
+  },
+});
+
+export const addRuleRepeatPattern = mutation({
+  args: { 
+    id: v.id("rules"),
+    startDate: v.string(), // ISO date string (YYYY-MM-DD)
+    every: v.number(),
+    unit: v.union(v.literal("day"), v.literal("week"), v.literal("month")),
+    scheduled: v.boolean(),
+    startTime: v.optional(v.string()),
+    endTime: v.optional(v.string())
+  },
+  handler: async (ctx, { id, startDate, every, unit, scheduled, startTime, endTime }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const rule = await ctx.db.get(id);
+    if (!rule) return;
+
+    console.log(`Creating new rule pattern starting ${startDate}, cleaning up conflicting exceptions`);
+
+    // Clean up any exceptions that would conflict with this new pattern
+    const updatedExceptions = (rule.repeatExceptions || []).filter((exceptionDate: string) => {
+      // Helper function to check if a date matches this new pattern
+      const matchesNewPattern = (date: string): boolean => {
+        const targetDate = new Date(date + 'T00:00:00');
+        const patternStartDate = new Date(startDate + 'T00:00:00');
+        
+        if (targetDate <= patternStartDate) return false;
+        
+        const diffTime = targetDate.getTime() - patternStartDate.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        
+        if (unit === 'day') {
+          return diffDays % every === 0;
+        } else if (unit === 'week') {
+          return diffDays % (every * 7) === 0;
+        } else if (unit === 'month') {
+          const targetDay = targetDate.getDate();
+          const startDay = patternStartDate.getDate();
+          if (targetDay !== startDay) return false;
+          
+          const monthDiff = (targetDate.getFullYear() - patternStartDate.getFullYear()) * 12 + 
+                         (targetDate.getMonth() - patternStartDate.getMonth());
+          return monthDiff % every === 0;
+        }
+        
+        return false;
+      };
+
+      // Keep exceptions that don't conflict with the new pattern
+      const shouldKeep = !matchesNewPattern(exceptionDate);
+      if (!shouldKeep) {
+        console.log(`Removing conflicting rule exception: ${exceptionDate}`);
+      }
+      return shouldKeep;
+    });
+
+    const updatedRepeatPatterns = {
+      ...rule.repeatPatterns,
+      [startDate]: { every, unit, scheduled, startTime, endTime }
+    };
+
+    console.log(`Cleaned rule exceptions: ${(rule.repeatExceptions || []).length} → ${updatedExceptions.length}`);
+
+    await ctx.db.patch(id, { 
+      repeatPatterns: updatedRepeatPatterns,
+      repeatExceptions: updatedExceptions
+    });
+  },
+});
+
+export const removeRuleRepeatPattern = mutation({
+  args: { 
+    id: v.id("rules"),
+    startDate: v.string()
+  },
+  handler: async (ctx, { id, startDate }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const rule = await ctx.db.get(id);
+    if (!rule) return;
+
+    const updatedRepeatPatterns = { ...rule.repeatPatterns };
+    delete updatedRepeatPatterns[startDate];
+
+    await ctx.db.patch(id, { repeatPatterns: updatedRepeatPatterns });
+  },
+});
+
+export const addRuleRepeatException = mutation({
+  args: { 
+    id: v.id("rules"),
+    date: v.string() // ISO date string (YYYY-MM-DD)
+  },
+  handler: async (ctx, { id, date }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const rule = await ctx.db.get(id);
+    if (!rule) return;
+
+    const currentExceptions = rule.repeatExceptions || [];
+    
+    if (currentExceptions.includes(date)) {
+      // Remove exception (re-enable the repeat for this date)
+      const updatedExceptions = currentExceptions.filter((d: string) => d !== date);
+      await ctx.db.patch(id, { repeatExceptions: updatedExceptions });
+    } else {
+      // Add exception (disable the repeat for this date)
+      const updatedExceptions = [...currentExceptions, date];
+      await ctx.db.patch(id, { repeatExceptions: updatedExceptions });
+    }
+  },
+});
+
+export const stopFutureRuleRepeats = mutation({
+  args: { 
+    id: v.id("rules"),
+    startDate: v.string(), // The original pattern start date
+    customStopFromDate: v.optional(v.string()) // Custom date to stop from (defaults to tomorrow)
+  },
+  handler: async (ctx, { id, startDate, customStopFromDate }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const rule = await ctx.db.get(id);
+    if (!rule || !rule.repeatPatterns || !rule.repeatPatterns[startDate]) return;
+
+    const pattern = rule.repeatPatterns[startDate];
+    const stopFromDate = customStopFromDate || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // Tomorrow
+    const stopFromDateObj = new Date(stopFromDate + 'T00:00:00');
+    const patternStartDate = new Date(startDate + 'T00:00:00');
+
+    console.log(`Stopping future rule repeats from: ${stopFromDate}`);
+
+    // Generate future dates that match the pattern and add them as exceptions
+    const newExceptions: string[] = [];
+    const currentExceptions = rule.repeatExceptions || [];
+    
+    // Look ahead 2 years maximum
+    const maxDate = new Date(Date.now() + 2 * 365 * 24 * 60 * 60 * 1000);
+    
+    for (let d = new Date(stopFromDateObj); d <= maxDate; d.setDate(d.getDate() + 1)) {
+      const dateString = d.toISOString().split('T')[0];
+      
+      // Check if this date matches the pattern
+      const diffTime = d.getTime() - patternStartDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      let matches = false;
+      if (diffDays > 0) { // Only future dates from the pattern start
+        if (pattern.unit === 'day') {
+          matches = diffDays % pattern.every === 0;
+        } else if (pattern.unit === 'week') {
+          matches = diffDays % (pattern.every * 7) === 0;
+        } else if (pattern.unit === 'month') {
+          const targetDay = d.getDate();
+          const startDay = patternStartDate.getDate();
+          if (targetDay === startDay) {
+            const monthDiff = (d.getFullYear() - patternStartDate.getFullYear()) * 12 + 
+                             (d.getMonth() - patternStartDate.getMonth());
+            matches = monthDiff % pattern.every === 0;
+          }
+        }
+      }
+      
+      if (matches && !currentExceptions.includes(dateString)) {
+        newExceptions.push(dateString);
+      }
+    }
+
+    console.log(`Adding ${newExceptions.length} rule exceptions to stop future repeats`);
+
+    const updatedExceptions = [...currentExceptions, ...newExceptions];
+    await ctx.db.patch(id, { repeatExceptions: updatedExceptions });
+  },
+});
+
+export const removeRule = mutation({
+  args: { id: v.id("rules") },
   handler: async (ctx, { id }) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {

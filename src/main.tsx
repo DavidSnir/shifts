@@ -32,7 +32,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
       <ConvexClientProvider>
-        <App />
+    <App />
       </ConvexClientProvider>
     </ClerkProvider>
   </StrictMode>,
