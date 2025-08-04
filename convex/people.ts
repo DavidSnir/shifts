@@ -552,7 +552,7 @@ export const updateMissionPropertyFilter = mutation({
     required: v.boolean(), // true = person must have property, false = person must NOT have property
     value: v.boolean() // Always true for boolean properties (kept for compatibility)
   },
-  handler: async (ctx, { id, propertyKey, required, value }) => {
+  handler: async (ctx, { id, propertyKey, required }) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
       throw new Error("Not authenticated");
@@ -886,7 +886,7 @@ export const updateRulePropertyFilter = mutation({
     required: v.boolean(), // true = person must have property, false = person must NOT have property
     value: v.boolean() // Always true for boolean properties (kept for compatibility)
   },
-  handler: async (ctx, { id, propertyKey, required, value }) => {
+  handler: async (ctx, { id, propertyKey, required }) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
       throw new Error("Not authenticated");

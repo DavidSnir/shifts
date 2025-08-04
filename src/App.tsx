@@ -147,16 +147,17 @@ function matchesRepeatPattern(date: string, startDate: string, pattern: { every:
 }
 
 // Helper function to find the original start date of a repeat pattern for a given date
-function findRepeatStartDate(person: Person, date: string): string | null {
-  if (person.repeatPatterns) {
-    for (const [startDate, pattern] of Object.entries(person.repeatPatterns)) {
-      if (matchesRepeatPattern(date, startDate, pattern)) {
-        return startDate;
-      }
-    }
-  }
-  return null;
-}
+// Currently unused but kept for potential future use
+// function findRepeatStartDate(person: Person, date: string): string | null {
+//   if (person.repeatPatterns) {
+//     for (const [startDate, pattern] of Object.entries(person.repeatPatterns)) {
+//       if (matchesRepeatPattern(date, startDate, pattern)) {
+//         return startDate;
+//       }
+//     }
+//   }
+//   return null;
+// }
 
 // Helper function to check if future repeats have been stopped for a pattern
 function hasFutureRepeatsStopped(person: Person, startDate: string): boolean {
@@ -1192,7 +1193,7 @@ function PersonPage({
   onRemoveProperty,
   onUpdateName,
   onUpdateAvailability,
-  onOpenRepeat,
+  // onOpenRepeat,
   weekOffset,
   onWeekOffsetChange, 
   onBack, 
@@ -1201,7 +1202,7 @@ function PersonPage({
   removeRepeatPattern,
   addRepeatException,
   stopFutureRepeats,
-  clearRepeatExceptions 
+  // clearRepeatExceptions 
 }: {
   person: Person;
   allPropertyKeys: string[];
@@ -1236,11 +1237,11 @@ function PersonPage({
     availability: { unavailable: boolean; startTime?: string; endTime?: string };
   } | null>(null)
 
-  const [unrepeatPopup, setUnrepeatPopup] = useState<{
-    open: boolean;
-    personId: string;
-    startDate: string;
-  } | null>(null)
+  // const [unrepeatPopup, setUnrepeatPopup] = useState<{
+  //   open: boolean;
+  //   personId: string;
+  //   startDate: string;
+  // } | null>(null)
 
   const [removeRepeatPopup, setRemoveRepeatPopup] = useState<{
     open: boolean;
@@ -1612,16 +1613,16 @@ function PersonPage({
             });
             setRepeatPopup({ open: true, personId, date, availability });
           }}
-          onCancelRepeat={async (personId, date) => {
-            console.log('Canceling repeat for date:', date);
-            // Add this date to exceptions to cancel just this instance
-            await addRepeatException({ id: personId as any, date });
-          }}
-          onUnrepeat={(personId, startDate) => {
-            console.log('Opening unrepeat popup for pattern starting from date:', startDate);
-            // Open popup to choose when to stop repeats
-            setUnrepeatPopup({ open: true, personId, startDate });
-          }}
+          // onCancelRepeat={async (personId, date) => {
+          //   console.log('Canceling repeat for date:', date);
+          //   // Add this date to exceptions to cancel just this instance
+          //   await addRepeatException({ id: personId as any, date });
+          // }}
+          // onUnrepeat={(personId, startDate) => {
+          //   console.log('Opening unrepeat popup for pattern starting from date:', startDate);
+          //   // Open popup to choose when to stop repeats
+          //   // setUnrepeatPopup({ open: true, personId, startDate });
+          // }}
           onOpenRemoveRepeat={(personId, date) => {
             console.log('Opening remove repeat popup for date:', date);
             setRemoveRepeatPopup({ open: true, personId, date });
@@ -2301,29 +2302,29 @@ function CalendarTab() {
   // Calendar events (placeholder for now - will connect to backend later)
   const [events, setEvents] = useState<CalendarEvent[]>([]);
 
-  const formatDateDisplay = (dateStr: string) => {
-    const date = new Date(dateStr + 'T00:00:00');
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
+  // const formatDateDisplay = (dateStr: string) => {
+  //   const date = new Date(dateStr + 'T00:00:00');
+  //   const today = new Date();
+  //   const tomorrow = new Date(today);
+  //   tomorrow.setDate(today.getDate() + 1);
+  //   const yesterday = new Date(today);
+  //   yesterday.setDate(today.getDate() - 1);
 
-    const isToday = dateStr === today.toISOString().split('T')[0];
-    const isTomorrow = dateStr === tomorrow.toISOString().split('T')[0];
-    const isYesterday = dateStr === yesterday.toISOString().split('T')[0];
+  //   const isToday = dateStr === today.toISOString().split('T')[0];
+  //   const isTomorrow = dateStr === tomorrow.toISOString().split('T')[0];
+  //   const isYesterday = dateStr === yesterday.toISOString().split('T')[0];
 
-    if (isToday) return 'Today';
-    if (isTomorrow) return 'Tomorrow';
-    if (isYesterday) return 'Yesterday';
+  //   if (isToday) return 'Today';
+  //   if (isTomorrow) return 'Tomorrow';
+  //   if (isYesterday) return 'Yesterday';
 
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      month: 'long', 
-      day: 'numeric',
-      year: 'numeric'
-    });
-  };
+  //   return date.toLocaleDateString('en-US', { 
+  //     weekday: 'long', 
+  //     month: 'long', 
+  //     day: 'numeric',
+  //     year: 'numeric'
+  //   });
+  // };
 
   const jumpToToday = () => {
     const today = new Date().toISOString().split('T')[0];
@@ -2367,9 +2368,9 @@ function InfiniteScrollCalendarView({
   onDateChange,
   jumpToToday,
   events,
-  onEventCreate,
-  onEventUpdate,
-  onEventDelete
+  // onEventCreate,
+  // onEventUpdate,
+  // onEventDelete
 }: {
   selectedDate: string;
   onDateChange: (date: string) => void;
@@ -2379,15 +2380,15 @@ function InfiniteScrollCalendarView({
   onEventUpdate: (eventId: string, event: Partial<CalendarEvent>) => void;
   onEventDelete: (eventId: string) => void;
 }) {
-  const [showEventModal, setShowEventModal] = useState(false);
-  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [eventDate, setEventDate] = useState(selectedDate);
-  const [newEvent, setNewEvent] = useState({
-    title: '',
-    startTime: '09:00',
-    endTime: '10:00',
-    description: ''
-  });
+  // const [showEventModal, setShowEventModal] = useState(false);
+  // const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  // const [eventDate, setEventDate] = useState(selectedDate);
+  // const [newEvent, setNewEvent] = useState({
+  //   title: '',
+  //   startTime: '09:00',
+  //   endTime: '10:00',
+  //   description: ''
+  // });
 
   // State for loaded date range - start with more days for better infinite experience
   const [loadedDays, setLoadedDays] = useState(() => {
@@ -2562,77 +2563,77 @@ function InfiniteScrollCalendarView({
   // Generate time slots once for use in both scroll handler and render
   const timeSlots = generateTimeSlots();
 
-  const handleTimeSlotClick = (date: string, time: string) => {
-    const endHour = parseInt(time.split(':')[0]);
-    const endMinute = parseInt(time.split(':')[1]);
-    let newEndTime;
+  // const handleTimeSlotClick = (date: string, time: string) => {
+  //   const endHour = parseInt(time.split(':')[0]);
+  //   const endMinute = parseInt(time.split(':')[1]);
+  //   let newEndTime;
     
-    if (endHour >= 23) {
-      newEndTime = '24:00';
-    } else if (endHour === 0 && endMinute === 30) {
-      // 00:30 -> 01:30
-      newEndTime = '01:30';
-    } else {
-      newEndTime = `${(endHour + 1).toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
-    }
+  //   if (endHour >= 23) {
+  //     newEndTime = '24:00';
+  //   } else if (endHour === 0 && endMinute === 30) {
+  //     // 00:30 -> 01:30
+  //     newEndTime = '01:30';
+  //   } else {
+  //     newEndTime = `${(endHour + 1).toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
+  //   }
 
-    setNewEvent({
-      title: '',
-      startTime: time,
-      endTime: newEndTime,
-      description: ''
-    });
-    setEditingEvent(null);
-    setShowEventModal(true);
+  //   setNewEvent({
+  //     title: '',
+  //     startTime: time,
+  //     endTime: newEndTime,
+  //     description: ''
+  //   });
+  //   setEditingEvent(null);
+  //   setShowEventModal(true);
     
-    // Set the selected date for the event
-    setEventDate(date);
-  };
+  //   // Set the selected date for the event
+  //   setEventDate(date);
+  // };
 
-  const handleEventClick = (event: CalendarEvent) => {
-    setEditingEvent(event);
-    setNewEvent({
-      title: event.title,
-      startTime: event.startTime,
-      endTime: event.endTime,
-      description: event.description || ''
-    });
-    setShowEventModal(true);
-  };
+  // const handleEventClick = (event: CalendarEvent) => {
+  //   setEditingEvent(event);
+  //   setNewEvent({
+  //     title: event.title,
+  //     startTime: event.startTime,
+  //     endTime: event.endTime,
+  //     description: event.description || ''
+  //   });
+  //   setShowEventModal(true);
+  // };
 
-  const handleSaveEvent = () => {
-    if (!newEvent.title.trim()) return;
+  // const handleSaveEvent = () => {
+  //   if (!newEvent.title.trim()) return;
 
-    if (editingEvent) {
-      onEventUpdate(editingEvent._id, {
-        title: newEvent.title,
-        startTime: newEvent.startTime,
-        endTime: newEvent.endTime,
-        description: newEvent.description
-      });
-    } else {
-      onEventCreate({
-        title: newEvent.title,
-        date: eventDate,
-        startTime: newEvent.startTime,
-        endTime: newEvent.endTime,
-        description: newEvent.description
-      });
-    }
+  //   if (editingEvent) {
+  //     onEventUpdate(editingEvent._id, {
+  //       title: newEvent.title,
+  //       startTime: newEvent.startTime,
+  //       endTime: newEvent.endTime,
+  //       description: newEvent.description
+  //     });
+  //   } else {
+  //     onEventCreate({
+  //       title: newEvent.title,
+  //       date: eventDate,
+  //       startTime: newEvent.startTime,
+  //       endTime: newEvent.endTime,
+  //       description: newEvent.description
+  //     });
+  //   }
 
-    setShowEventModal(false);
-    setEditingEvent(null);
-    setNewEvent({ title: '', startTime: '09:00', endTime: '10:00', description: '' });
-  };
+  //   setShowEventModal(false);
+  //   setEditingEvent(null);
+  //   setNewEvent({ title: '', startTime: '09:00', endTime: '10:00', description: '' });
+  // };
 
-  const handleDeleteEvent = () => {
-    if (editingEvent) {
-      onEventDelete(editingEvent._id);
-      setShowEventModal(false);
-      setEditingEvent(null);
-      setNewEvent({ title: '', startTime: '09:00', endTime: '10:00', description: '' });
-    }
-  };
+  // const handleDeleteEvent = () => {
+  //   if (editingEvent) {
+  //     onEventDelete(editingEvent._id);
+  //     setShowEventModal(false);
+  //     setEditingEvent(null);
+  //     setNewEvent({ title: '', startTime: '09:00', endTime: '10:00', description: '' });
+  //   }
+  // };
 
   const getEventsForTimeSlot = (date: string, time: string) => {
     return events.filter(event => {
@@ -2707,7 +2708,7 @@ function InfiniteScrollCalendarView({
           }}
           onScroll={handleScroll}
         >
-          {timeSlots.map((slot, index) => {
+          {timeSlots.map((slot) => {
             const eventsAtTime = getEventsForTimeSlot(slot.date, slot.time);
             
             return (
@@ -2720,7 +2721,9 @@ function InfiniteScrollCalendarView({
                   cursor: 'pointer',
                   padding: '4px'
                 }}
-                onClick={() => handleTimeSlotClick(slot.date, slot.time)}
+                onClick={() => {
+                  // handleTimeSlotClick(slot.date, slot.time)
+                }}
               >
                 {/* Time Label Overlay - Only for hour slots */}
                 {slot.isHour && (
@@ -2751,7 +2754,7 @@ function InfiniteScrollCalendarView({
                       key={event._id}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleEventClick(event);
+                        // handleEventClick(event);
                       }}
                       style={{
                         backgroundColor: '#007BFF',
@@ -3314,10 +3317,10 @@ function MissionCalendarGrid({
                     console.log('Setting mission repeat popup state:', { missionId, date, schedule });
                     setRepeatPopup({ open: true, missionId, date, schedule });
                   }}
-                  onCancelRepeat={async (missionId, date) => {
-                    console.log('Canceling mission repeat for date:', date);
-                    await onAddRepeatException({ id: missionId as any, date });
-                  }}
+                  // onCancelRepeat={async (missionId, date) => {
+                  //   console.log('Canceling mission repeat for date:', date);
+                  //   await onAddRepeatException({ id: missionId as any, date });
+                  // }}
                   onOpenRemoveRepeat={(missionId, date) => {
                     console.log('Opening remove mission repeat popup for date:', date);
                     setRemoveRepeatPopup({ open: true, missionId, date });
@@ -3412,7 +3415,7 @@ function MissionCalendarCell({
   schedule,
   onUpdateSchedule,
   onOpenRepeat,
-  onCancelRepeat,
+  // onCancelRepeat,
   onOpenRemoveRepeat,
   missionId,
   isToday: isTodayProp = false
@@ -3421,7 +3424,7 @@ function MissionCalendarCell({
   schedule?: { scheduled: boolean; startTime?: string; endTime?: string; isRepeated?: boolean; isRepeatOrigin?: boolean; isResetOrigin?: boolean; originalStartDate?: string; futureRepeatsStopped?: boolean; wasBrokenFromPattern?: boolean };
   onUpdateSchedule: any;
   onOpenRepeat: (missionId: string, date: string, schedule: { scheduled: boolean; startTime?: string; endTime?: string }) => void;
-  onCancelRepeat: (missionId: string, date: string) => void;
+  // onCancelRepeat: (missionId: string, date: string) => void;
   onOpenRemoveRepeat: (missionId: string, date: string) => void;
   missionId: string;
   isToday?: boolean;
@@ -4405,10 +4408,10 @@ function RuleCalendarGrid({
                     console.log('Setting rule repeat popup state:', { ruleId, date, schedule });
                     setRepeatPopup({ open: true, ruleId, date, schedule });
                   }}
-                  onCancelRepeat={async (ruleId, date) => {
-                    console.log('Canceling rule repeat for date:', date);
-                    await onAddRepeatException({ id: ruleId as any, date });
-                  }}
+                  // onCancelRepeat={async (ruleId, date) => {
+                  //   console.log('Canceling rule repeat for date:', date);
+                  //   await onAddRepeatException({ id: ruleId as any, date });
+                  // }}
                   onOpenRemoveRepeat={(ruleId, date) => {
                     console.log('Opening remove rule repeat popup for date:', date);
                     setRemoveRepeatPopup({ open: true, ruleId, date });
@@ -4501,7 +4504,7 @@ function RuleCalendarCell({
   schedule,
   onUpdateSchedule,
   onOpenRepeat,
-  onCancelRepeat,
+  // onCancelRepeat,
   onOpenRemoveRepeat,
   ruleId,
   isToday: isTodayProp = false
@@ -4510,7 +4513,7 @@ function RuleCalendarCell({
   schedule?: { scheduled: boolean; startTime?: string; endTime?: string; isRepeated?: boolean; isRepeatOrigin?: boolean; isResetOrigin?: boolean; originalStartDate?: string; futureRepeatsStopped?: boolean; wasBrokenFromPattern?: boolean };
   onUpdateSchedule: any;
   onOpenRepeat: (ruleId: string, date: string, schedule: { scheduled: boolean; startTime?: string; endTime?: string }) => void;
-  onCancelRepeat: (ruleId: string, date: string) => void;
+  // onCancelRepeat: (ruleId: string, date: string) => void;
   onOpenRemoveRepeat: (ruleId: string, date: string) => void;
   ruleId: string;
   isToday?: boolean;
@@ -4810,16 +4813,16 @@ function CalendarGrid({
   weekOffset,
   onUpdateAvailability,
   onOpenRepeat,
-  onCancelRepeat,
-  onUnrepeat,
+  // onCancelRepeat,
+  // onUnrepeat,
   onOpenRemoveRepeat
 }: {
   person: Person;
   weekOffset: number;
   onUpdateAvailability: (personId: string, date: string, unavailable: boolean, startTime?: string, endTime?: string) => Promise<void>;
   onOpenRepeat: (personId: string, date: string, availability: { unavailable: boolean; startTime?: string; endTime?: string }) => void;
-  onCancelRepeat: (personId: string, date: string) => void;
-  onUnrepeat: (personId: string, date: string) => void;
+  // onCancelRepeat: (personId: string, date: string) => void;
+  // onUnrepeat: (personId: string, date: string) => void;
   onOpenRemoveRepeat: (personId: string, date: string) => void;
 }) {
   const { weekNumbers, dates } = getThreeWeeks(weekOffset);
@@ -4889,8 +4892,8 @@ function CalendarGrid({
                 availability={getEffectiveAvailability(person, date)}
                 onUpdateAvailability={onUpdateAvailability}
                 onOpenRepeat={onOpenRepeat}
-                onCancelRepeat={onCancelRepeat}
-                onUnrepeat={onUnrepeat}
+                // onCancelRepeat={onCancelRepeat}
+                // onUnrepeat={onUnrepeat}
                 onOpenRemoveRepeat={onOpenRemoveRepeat}
                 personId={person._id}
                 isToday={isToday(date)}
@@ -4908,8 +4911,8 @@ function CalendarCell({
   availability,
   onUpdateAvailability,
   onOpenRepeat,
-  onCancelRepeat,
-  onUnrepeat,
+  // onCancelRepeat,
+  // onUnrepeat,
   onOpenRemoveRepeat,
   personId,
   isToday: isTodayProp = false
@@ -4918,8 +4921,8 @@ function CalendarCell({
   availability?: { unavailable: boolean; startTime?: string; endTime?: string; isRepeated?: boolean; isRepeatOrigin?: boolean; isResetOrigin?: boolean; originalStartDate?: string; futureRepeatsStopped?: boolean; wasBrokenFromPattern?: boolean };
   onUpdateAvailability: (personId: string, date: string, unavailable: boolean, startTime?: string, endTime?: string) => Promise<void>;
   onOpenRepeat: (personId: string, date: string, availability: { unavailable: boolean; startTime?: string; endTime?: string }) => void;
-  onCancelRepeat: (personId: string, date: string) => void;
-  onUnrepeat: (personId: string, date: string) => void;
+  // onCancelRepeat: (personId: string, date: string) => void;
+  // onUnrepeat: (personId: string, date: string) => void;
   onOpenRemoveRepeat: (personId: string, date: string) => void;
   personId: string;
   isToday?: boolean;
