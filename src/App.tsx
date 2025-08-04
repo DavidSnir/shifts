@@ -1927,7 +1927,6 @@ function MissionTab() {
               }}
               placeholder="Maximum mission length (optional)"
             />
-          </div>
         </div>
       </div>
       
@@ -2177,6 +2176,7 @@ function MissionTab() {
         DELETE MISSION
       </button>
     </div>
+    </div>
   }
 
   return (
@@ -2278,6 +2278,506 @@ function MissionTab() {
       </div>
     </div>
   )
+}
+
+// Calendar Event interface
+interface CalendarEvent {
+  _id: string;
+  title: string;
+  date: string; // YYYY-MM-DD
+  startTime: string; // HH:MM
+  endTime: string; // HH:MM
+  description?: string;
+  userId: string;
+  _creationTime: number;
+}
+
+function CalendarTab() {
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0]; // YYYY-MM-DD
+  });
+
+  // Calendar events (placeholder for now - will connect to backend later)
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+
+  const formatDateDisplay = (dateStr: string) => {
+    const date = new Date(dateStr + 'T00:00:00');
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    const isToday = dateStr === today.toISOString().split('T')[0];
+    const isTomorrow = dateStr === tomorrow.toISOString().split('T')[0];
+    const isYesterday = dateStr === yesterday.toISOString().split('T')[0];
+
+    if (isToday) return 'Today';
+    if (isTomorrow) return 'Tomorrow';
+    if (isYesterday) return 'Yesterday';
+
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      month: 'long', 
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const jumpToToday = () => {
+    const today = new Date().toISOString().split('T')[0];
+    setSelectedDate(today);
+  };
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+
+
+      {/* Infinite Scroll Calendar View */}
+      <InfiniteScrollCalendarView 
+        selectedDate={selectedDate}
+        onDateChange={setSelectedDate}
+        jumpToToday={jumpToToday}
+        events={events}
+        onEventCreate={(event) => {
+          const newEvent: CalendarEvent = {
+            ...event,
+            _id: Date.now().toString(),
+            userId: 'current-user', // Will be replaced with actual user ID
+            _creationTime: Date.now()
+          };
+          setEvents(prev => [...prev, newEvent]);
+        }}
+        onEventUpdate={(eventId, updates) => {
+          setEvents(prev => prev.map(event => 
+            event._id === eventId ? { ...event, ...updates } : event
+          ));
+        }}
+        onEventDelete={(eventId) => {
+          setEvents(prev => prev.filter(event => event._id !== eventId));
+        }}
+      />
+    </div>
+  );
+}
+
+function InfiniteScrollCalendarView({
+  selectedDate,
+  onDateChange,
+  jumpToToday,
+  events,
+  onEventCreate,
+  onEventUpdate,
+  onEventDelete
+}: {
+  selectedDate: string;
+  onDateChange: (date: string) => void;
+  jumpToToday: () => void;
+  events: CalendarEvent[];
+  onEventCreate: (event: Omit<CalendarEvent, '_id' | 'userId' | '_creationTime'>) => void;
+  onEventUpdate: (eventId: string, event: Partial<CalendarEvent>) => void;
+  onEventDelete: (eventId: string) => void;
+}) {
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [eventDate, setEventDate] = useState(selectedDate);
+  const [newEvent, setNewEvent] = useState({
+    title: '',
+    startTime: '09:00',
+    endTime: '10:00',
+    description: ''
+  });
+
+  // State for loaded date range - start with more days for better infinite experience
+  const [loadedDays, setLoadedDays] = useState(() => {
+    const centerDate = new Date(selectedDate + 'T00:00:00');
+    const days = [];
+    
+    // Start with 11 days: 5 before, center, 5 after
+    for (let offset = -5; offset <= 5; offset++) {
+      const date = new Date(centerDate);
+      date.setDate(centerDate.getDate() + offset);
+      days.push(date.toISOString().split('T')[0]);
+    }
+    
+    return days;
+  });
+
+  // Constants for scroll calculations
+  const SLOT_HEIGHT = 40;
+  const SLOTS_PER_DAY = 48; // 01:00 to 24:00 + 00:30 = 24 hours * 2 slots (includes 00:30)
+  const DAY_HEIGHT = SLOTS_PER_DAY * SLOT_HEIGHT;
+  const TOTAL_DAY_HEIGHT = DAY_HEIGHT; // No header height since we removed day separators
+
+  // Handle scroll to detect current day and load more days  
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const scrollTop = container.scrollTop;
+    const containerHeight = container.clientHeight;
+    const scrollHeight = container.scrollHeight;
+    
+    // Calculate which day we're currently viewing
+    // Each day has SLOTS_PER_DAY slots, so we can determine the day from scroll position
+    const centerSlotIndex = Math.floor((scrollTop + containerHeight / 2) / SLOT_HEIGHT);
+    const dayIndex = Math.floor(centerSlotIndex / SLOTS_PER_DAY);
+    
+    // Bounds checking
+    if (dayIndex < 0 || dayIndex >= loadedDays.length) {
+      console.log('Day index out of bounds:', dayIndex, 'loadedDays length:', loadedDays.length);
+      return;
+    }
+    
+    // Get the current date based on day index
+    const currentDate = loadedDays[dayIndex];
+    
+    console.log('📅 Scroll check:', { dayIndex, currentDate, selectedDate, centerSlotIndex });
+    
+    if (currentDate && currentDate !== selectedDate) {
+      console.log(`📅 Date changed to: ${currentDate}`);
+      onDateChange(currentDate);
+    }
+    
+         // Load more days when approaching edges - more aggressive for infinite experience
+     const LOAD_THRESHOLD = TOTAL_DAY_HEIGHT * 3; // Load when 3 days away from edge
+     
+     // Check if we need to load days at the beginning
+     if (scrollTop < LOAD_THRESHOLD) {
+       setLoadedDays(prevDays => {
+         const firstDate = new Date(prevDays[0] + 'T00:00:00');
+         const newDays = [];
+         
+         // Add 5 days before for smoother infinite scrolling
+         for (let i = 5; i >= 1; i--) {
+           const newDate = new Date(firstDate);
+           newDate.setDate(firstDate.getDate() - i);
+           newDays.push(newDate.toISOString().split('T')[0]);
+         }
+         
+         const combined = [...newDays, ...prevDays];
+         
+         // Keep maximum 30 days loaded (more generous for better UX)
+         // Remove from end if we exceed limit
+         return combined.length > 30 ? combined.slice(0, 30) : combined;
+       });
+       
+       // Adjust scroll position to maintain current view
+       setTimeout(() => {
+         container.scrollTop = scrollTop + (5 * TOTAL_DAY_HEIGHT);
+       }, 0);
+     }
+     
+     // Check if we need to load days at the end
+     if (scrollTop + containerHeight > scrollHeight - LOAD_THRESHOLD) {
+       setLoadedDays(prevDays => {
+         const lastDate = new Date(prevDays[prevDays.length - 1] + 'T00:00:00');
+         const newDays = [...prevDays];
+         
+         // Add 5 days after for smoother infinite scrolling
+         for (let i = 1; i <= 5; i++) {
+           const newDate = new Date(lastDate);
+           newDate.setDate(lastDate.getDate() + i);
+           newDays.push(newDate.toISOString().split('T')[0]);
+         }
+         
+         // Keep maximum 30 days loaded (more generous for better UX)
+         // Remove from beginning if we exceed limit
+         return newDays.length > 30 ? newDays.slice(-30) : newDays;
+       });
+     }
+  };
+
+  // Effect to center on selectedDate when it changes externally (e.g., TODAY button)
+  useEffect(() => {
+    const container = document.getElementById('calendar-scroll-container');
+    if (container && loadedDays.includes(selectedDate)) {
+      const dayIndex = loadedDays.indexOf(selectedDate);
+      const targetScrollTop = dayIndex * TOTAL_DAY_HEIGHT;
+      container.scrollTop = targetScrollTop;
+         } else if (container && !loadedDays.includes(selectedDate)) {
+       // If selectedDate is not in loaded days, reset loaded days around it with more buffer
+       const centerDate = new Date(selectedDate + 'T00:00:00');
+       const newDays = [];
+       
+       for (let offset = -5; offset <= 5; offset++) {
+         const date = new Date(centerDate);
+         date.setDate(centerDate.getDate() + offset);
+         newDays.push(date.toISOString().split('T')[0]);
+       }
+       
+       setLoadedDays(newDays);
+       
+       // Scroll to center day after days are loaded
+       setTimeout(() => {
+         container.scrollTop = 5 * TOTAL_DAY_HEIGHT;
+       }, 0);
+     }
+  }, [selectedDate, loadedDays]);
+
+  // Generate time slots for loaded days only
+  const generateTimeSlots = () => {
+    const slots: Array<{
+      date: string;
+      time: string;
+      key: string;
+      isHour: boolean;
+    }> = [];
+    
+         // Generate time slots for each loaded day
+     loadedDays.forEach(dateStr => {
+       // Generate all hours from 01:00 to 24:00 (24-hour format where 24:00 = midnight)
+       for (let hour = 1; hour <= 24; hour++) {
+         const timeStr = hour === 24 ? '24:00' : `${hour.toString().padStart(2, '0')}:00`;
+         slots.push({
+           date: dateStr,
+           time: timeStr,
+           key: `${dateStr}-${timeStr}`,
+           isHour: true
+         });
+         
+         // Add 30-minute slots, but not for 24:00 (end of day)
+         if (hour < 24) {
+           const halfTimeStr = `${hour.toString().padStart(2, '0')}:30`;
+           slots.push({
+             date: dateStr,
+             time: halfTimeStr,
+             key: `${dateStr}-${halfTimeStr}`,
+             isHour: false
+           });
+         }
+       }
+       
+       // Add 00:30 (30 minutes after midnight) after 24:00
+       slots.push({
+         date: dateStr,
+         time: '00:30',
+         key: `${dateStr}-00:30`,
+         isHour: false
+       });
+     });
+    
+    return slots;
+  };
+
+  // Generate time slots once for use in both scroll handler and render
+  const timeSlots = generateTimeSlots();
+
+  const handleTimeSlotClick = (date: string, time: string) => {
+    const endHour = parseInt(time.split(':')[0]);
+    const endMinute = parseInt(time.split(':')[1]);
+    let newEndTime;
+    
+    if (endHour >= 23) {
+      newEndTime = '24:00';
+    } else if (endHour === 0 && endMinute === 30) {
+      // 00:30 -> 01:30
+      newEndTime = '01:30';
+    } else {
+      newEndTime = `${(endHour + 1).toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
+    }
+
+    setNewEvent({
+      title: '',
+      startTime: time,
+      endTime: newEndTime,
+      description: ''
+    });
+    setEditingEvent(null);
+    setShowEventModal(true);
+    
+    // Set the selected date for the event
+    setEventDate(date);
+  };
+
+  const handleEventClick = (event: CalendarEvent) => {
+    setEditingEvent(event);
+    setNewEvent({
+      title: event.title,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      description: event.description || ''
+    });
+    setShowEventModal(true);
+  };
+
+  const handleSaveEvent = () => {
+    if (!newEvent.title.trim()) return;
+
+    if (editingEvent) {
+      onEventUpdate(editingEvent._id, {
+        title: newEvent.title,
+        startTime: newEvent.startTime,
+        endTime: newEvent.endTime,
+        description: newEvent.description
+      });
+    } else {
+      onEventCreate({
+        title: newEvent.title,
+        date: eventDate,
+        startTime: newEvent.startTime,
+        endTime: newEvent.endTime,
+        description: newEvent.description
+      });
+    }
+
+    setShowEventModal(false);
+    setEditingEvent(null);
+    setNewEvent({ title: '', startTime: '09:00', endTime: '10:00', description: '' });
+  };
+
+  const handleDeleteEvent = () => {
+    if (editingEvent) {
+      onEventDelete(editingEvent._id);
+      setShowEventModal(false);
+      setEditingEvent(null);
+      setNewEvent({ title: '', startTime: '09:00', endTime: '10:00', description: '' });
+    }
+  };
+
+  const getEventsForTimeSlot = (date: string, time: string) => {
+    return events.filter(event => {
+      if (event.date !== date) return false;
+      const eventStart = event.startTime;
+      const eventEnd = event.endTime;
+      return time >= eventStart && time < eventEnd;
+    });
+  };
+
+      return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Table Header Row - Sticky */}
+        <div style={{ 
+          borderBottom: '3px solid #000000',
+          backgroundColor: '#f5f5f5',
+          position: 'sticky',
+          top: 0,
+          zIndex: 100,
+          padding: '12px 16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          {/* Date Display - Clickable to go to today */}
+          <div 
+            onClick={jumpToToday}
+            style={{
+              fontSize: '14px',
+              fontWeight: 'bold',
+              backgroundColor: '#000000',
+              color: '#ffffff',
+              padding: '8px 12px',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            <div style={{ fontSize: '10px', opacity: 0.8, marginBottom: '2px' }}>
+              CURRENT DATE • CLICK FOR TODAY
+            </div>
+            <div>
+              {selectedDate ? new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { 
+                weekday: 'long',
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric'
+              }) : 'Loading...'}
+            </div>
+          </div>
+          
+          {/* Mission Header */}
+          <div style={{
+            fontSize: '14px',
+            fontWeight: 'bold',
+            color: '#666666'
+          }}>
+            MISSIONS (Coming Soon)
+          </div>
+        </div>
+
+        {/* Scrollable Calendar Content */}
+        <div 
+          id="calendar-scroll-container"
+          style={{ 
+            flex: 1, 
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            backgroundColor: '#ffffff',
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column'
+          }}
+          onScroll={handleScroll}
+        >
+          {timeSlots.map((slot, index) => {
+            const eventsAtTime = getEventsForTimeSlot(slot.date, slot.time);
+            
+            return (
+              <div
+                key={slot.key}
+                style={{
+                  borderBottom: slot.isHour ? '2px solid #000000' : '1px solid #cccccc',
+                  minHeight: '40px',
+                  position: 'relative',
+                  cursor: 'pointer',
+                  padding: '4px'
+                }}
+                onClick={() => handleTimeSlotClick(slot.date, slot.time)}
+              >
+                {/* Time Label Overlay - Only for hour slots */}
+                {slot.isHour && (
+                  <div style={{
+                    position: 'absolute',
+                    left: '8px',
+                    top: '-10px',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    color: '#000000',
+                    backgroundColor: '#ffffff',
+                    padding: '2px 6px',
+                    zIndex: 10
+                  }}>
+                    {slot.time}
+                  </div>
+                )}
+                
+                {/* Event Area */}
+                <div 
+                  style={{
+                    minHeight: '32px',
+                    position: 'relative'
+                  }}
+                >
+                  {eventsAtTime.map(event => (
+                    <div
+                      key={event._id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEventClick(event);
+                      }}
+                      style={{
+                        backgroundColor: '#007BFF',
+                        color: '#ffffff',
+                        padding: '4px 8px',
+                        margin: '2px 0',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        border: '1px solid #0056b3'
+                      }}
+                    >
+                      {event.title}
+                      <div style={{ fontSize: '10px', opacity: 0.8 }}>
+                        {event.startTime} - {event.endTime}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
 }
 
 function RulesTab() {
@@ -2449,31 +2949,7 @@ function RulesTab() {
   );
 }
 
-function CalendarTab() {
-  return (
-    <div>
-      <h2 style={{ 
-        fontSize: '20px', 
-        fontWeight: 'bold', 
-        marginBottom: '20px',
-        color: '#000000'
-      }}>
-        CALENDAR
-      </h2>
-      <div style={{ 
-        height: '200px', 
-        border: '2px solid #000000',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        fontSize: '14px',
-        fontWeight: 'bold'
-      }}>
-        COMING SOON
-      </div>
-    </div>
-  )
-}
+
 
 // Helper function to check if a date matches a mission repeat pattern
 function matchesMissionRepeatPattern(date: string, startDate: string, pattern: { every: number; unit: 'day' | 'week' | 'month' }): boolean {
