@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 // typically the first date in the loaded days array. This avoids re-basing
 // while the user scrolls and prevents feedback loops.
 export function useStickyDate(
-  containerRef: React.RefObject<HTMLElement>,
+  containerRef: React.RefObject<HTMLElement | null>,
   baseISO: string,
   dayHeightPx: number,
   offsetTopPx: number = 0,
