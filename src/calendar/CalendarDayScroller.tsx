@@ -11,7 +11,7 @@ const INITIAL_BEFORE = 5;
 const INITIAL_AFTER = 5;
 const LOAD_CHUNK = 5;
 const MAX_DAYS = 90; // clamp to avoid unbounded DOM growth
-const HEADER_HEIGHT_PX = 36; // mission header under sticky date
+// Removed unused header height constant; titles are outside the scroll container
 
 function buildDaysAround(anchorISO: string, before = INITIAL_BEFORE, after = INITIAL_AFTER): string[] {
   const base = new Date(anchorISO + 'T00:00:00');
@@ -67,17 +67,7 @@ export function CalendarDayScroller({
     }
   }, [stickyISO, onDateChange]);
 
-  const getPivotClientY = React.useCallback((e: WheelEvent | TouchEvent) => {
-    if ('ctrlKey' in e) {
-      const wheel = e as WheelEvent;
-      return wheel.clientY;
-    }
-    const touch = e as TouchEvent;
-    if (touch.touches.length === 2) {
-      return (touch.touches[0].clientY + touch.touches[1].clientY) / 2;
-    }
-    return null;
-  }, []);
+  // Removed unused pivot computation (gesture zoom removed)
 
   // Removed gesture zoom; spacing controlled via settings
 

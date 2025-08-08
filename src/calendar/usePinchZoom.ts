@@ -12,7 +12,7 @@ export function usePinchZoom(
 ) {
   const lastDistanceRef = useRef<number | null>(null);
 
-  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+  // clamp utility not used after simplifying zoom; keep code minimal
 
   const applyZoom = useCallback((delta: number, pivotClientY: number) => {
     const container = containerRef.current;

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UnifiedDateCell } from './UnifiedDateCell';
 import type { UnifiedKind } from './UnifiedDateCell';
-import { getThreeWeeks, isToday, matchesRepeatPattern, matchesMissionRepeatPattern, matchesRuleRepeatPattern, getEffectiveAvailability, getEffectiveMissionSchedule, getEffectiveRuleSchedule } from '../../utils/dateScheduling';
+import { getThreeWeeks, isToday, getEffectiveAvailability, getEffectiveMissionSchedule, getEffectiveRuleSchedule } from '../../utils/dateScheduling';
 
 export interface UnifiedCalendarProps {
   title: string;

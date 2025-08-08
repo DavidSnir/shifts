@@ -34,6 +34,8 @@ export interface TimeSlot {
   index: number; // 0..slotsPerDay-1
   isHour: boolean;
   label: string; // e.g., "09:00"
+  hour: number;
+  minute: number;
 }
 
 
