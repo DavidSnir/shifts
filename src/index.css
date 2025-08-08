@@ -36,9 +36,11 @@ button, a {
 }
 
 /* Remove focus outline for mouse users, keep for keyboard users */
+button:focus,
 button:focus-visible {
-  outline: 2px solid #000000;
-  outline-offset: 2px;
+  outline: none;
+  outline-offset: 0;
+  box-shadow: none;
 }
 
 /* Disable text selection on interactive elements */
@@ -46,6 +48,13 @@ button, nav {
   -webkit-user-select: none;
   -moz-user-select: none;
   user-select: none;
+}
+
+/* Remove avatar focus ring */
+.avatar-focus :focus,
+.avatar-focus :focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 /* Responsive text sizing */
@@ -69,7 +78,6 @@ input, select, textarea {
 /* Force 24-hour time format */
 input[type="time"] {
   -webkit-locale: "en-GB";
-  locale: "en-GB";
 }
 
 input[type="time"]::-webkit-datetime-edit-ampm-field {
